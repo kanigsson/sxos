@@ -8,12 +8,12 @@ run SPARK proofs.
 ## Current state
 
 The first firmware experiment builds an 800×480, 1-bpp framebuffer containing
-`hello` and sends it over SPI using the HAL. The project uses the X4 Pro display
-pins reported hardware-confirmed by the FreeInk SDK and the SSD1677 production
-init/full-refresh sequence. The original device dump has NVS `hw_calib/screenType`
-value 0 (the default/SSD1677 profile), but this is not an independent live
-controller probe; newer X4 Pro batches may use UC8179/UC8279. The first test is
-therefore deliberately narrow and may need a controller-specific follow-up.
+`hello` and sends it over SPI using the HAL. The live panel probe reports
+UC8279 LUT_VER `0x68`; sxos now uses the X4 Pro UC8279 full B/W path. The first
+flash attempt revealed that the HAL requires explicit software-CS selection;
+that omission is fixed. The latest image was flashed successfully and reached
+the end of the hello refresh path, but physical on-glass output still needs
+confirmation.
 
 The connected device was identified as an ESP32-S3, revision 0.2, with 16 MiB
 flash and 8 MiB PSRAM. After safely ejecting CrossPoint USB Drive mode, it
