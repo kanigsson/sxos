@@ -1,8 +1,7 @@
-with Interfaces;
-
 package X4_Display is
-   --  Prototype for an 800x480, 1-bpp SPI panel using an SSD1677-like command
-   --  set.  Neither the controller nor the GPIO assignments are confirmed yet.
+   --  Draw in 480x800 portrait coordinates, then submit one full refresh.
    procedure Initialize;
-   procedure Show_Hello;
+   procedure Clear;
+   procedure Draw_Line (X, Y : Natural; Text : String);
+   procedure Show;
 end X4_Display;

@@ -5,6 +5,7 @@ with System;
 with ESP32S3.GPIO;
 with ESP32S3.SPI;
 with ESP32S3.Log; use ESP32S3.Log;
+with X4_Font;
 
 package body X4_Display is
    --  X4 Pro pinout from the hardware-confirmed FreeInk SDK profile.
@@ -370,26 +371,6 @@ package body X4_Display is
       end if;
    end Initialize;
 
-   function Glyph_Row (C : Character; Row : Natural) return String is
-      type Rows is array (1 .. 7) of String (1 .. 5);
-      H : constant Rows := ("#   #", "#   #", "#####", "#   #", "#   #", "#   #", "#   #");
-      E : constant Rows := ("#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#####");
-      L : constant Rows := ("#    ", "#    ", "#    ", "#    ", "#    ", "#    ", "#####");
-      O : constant Rows := (" ### ", "#   #", "#   #", "#   #", "#   #", "#   #", " ### ");
-      Blank : constant String (1 .. 5) := "     ";
-   begin
-      if Row not in 1 .. 7 then
-         return Blank;
-      end if;
-      case C is
-         when 'h' => return H (Row);
-         when 'e' => return E (Row);
-         when 'l' => return L (Row);
-         when 'o' => return O (Row);
-         when others => return Blank;
-      end case;
-   end Glyph_Row;
-
    procedure Set_Black (X, Y : Natural) is
       Index : constant Natural := Y * Bytes_Per_Row + X / 8;
       Mask  : constant Byte := Shift_Left (Byte'(1), 7 - (X mod 8));
@@ -397,33 +378,46 @@ package body X4_Display is
       Frame (Index) := Frame (Index) and not Mask;
    end Set_Black;
 
-   procedure Render_Hello is
-      Text : constant String := "hello";
-      X0   : constant Natural := (Width - (Text'Length * 6 - 1)) / 2;
-      Y0   : constant Natural := (Height - 7) / 2;
+   procedure Clear is
    begin
-      Frame := (others => 16#FF#); -- 1=white, 0=black on the X4 SSD1677 path
-      for Letter in Text'Range loop
-         for Row in 1 .. 7 loop
+      Frame := (others => 16#FF#);
+   end Clear;
+
+   procedure Draw_Line (X, Y : Natural; Text : String) is
+      Scale : constant := 2;
+   begin
+      --  Portrait coordinates (480x800) -> panel RAM (800x480). On the
+      --  mounted X4 Pro, (799 - PY, PX) rendered upside down; rotate the
+      --  opposite way: (PY, 479 - PX). Clip before touching the framebuffer.
+      for I in Text'Range loop
+         for Col in 0 .. 4 loop
             declare
-               Bits : constant String := Glyph_Row (Text (Letter), Row);
-               Y    : constant Natural := Y0 + Row - 1;
-               X    : constant Natural := X0 + (Letter - Text'First) * 6;
+               Bits : constant Byte := X4_Font.Column (Text (I), Col);
             begin
-               for Col in Bits'Range loop
-                  if Bits (Col) = '#' then
-                     Set_Black (X + Col - Bits'First, Y);
+               for Row in 0 .. 6 loop
+                  if (Bits and Shift_Left (Byte'(1), Row)) /= 0 then
+                     for DX in 0 .. Scale - 1 loop
+                        for DY in 0 .. Scale - 1 loop
+                           declare
+                              PX : constant Natural := X + (I - Text'First) * 6 * Scale + Col * Scale + DX;
+                              PY : constant Natural := Y + Row * Scale + DY;
+                           begin
+                              if PX < Height and then PY < Width then
+                                 Set_Black (PY, Height - 1 - PX);
+                              end if;
+                           end;
+                        end loop;
+                     end loop;
                   end if;
                end loop;
             end;
          end loop;
       end loop;
-   end Render_Hello;
+   end Draw_Line;
 
-   procedure Show_Hello is
+   procedure Show is
       Offset : Natural := 0;
    begin
-      Render_Hello;
       if Controller_Variant = 16#68# then
          Show_UC8279;
          return;
@@ -449,5 +443,5 @@ package body X4_Display is
       Data_Byte (16#F7#);
       Command (16#20#);
       Wait_Ready (Timeout_Ms => 15_000);
-   end Show_Hello;
+   end Show;
 end X4_Display;
