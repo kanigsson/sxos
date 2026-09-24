@@ -8,21 +8,20 @@ run SPARK proofs.
 ## Current state
 
 The first firmware experiment builds an 800×480, 1-bpp framebuffer containing
-`hello` and sends it over SPI using the HAL. The panel backend currently assumes
-an **SSD1677-compatible** command set. This is only a bring-up starting point:
-public X4 Pro reports indicate multiple possible panel controllers, and the
-exact X4 GPIO map/controller revision has not yet been verified. The pin values
-in `src/x4_display.adb` are provisional example values. **Do not flash this
-image or connect the panel driver until the actual unit's pinout and controller
-are identified.** The initialization sequence/LUT and pixel polarity may also
-need changes.
+`hello` and sends it over SPI using the HAL. The project uses the X4 Pro display
+pins reported hardware-confirmed by the FreeInk SDK and the SSD1677 production
+init/full-refresh sequence. The original device dump has NVS `hw_calib/screenType`
+value 0 (the default/SSD1677 profile), but this is not an independent live
+controller probe; newer X4 Pro batches may use UC8179/UC8279. The first test is
+therefore deliberately narrow and may need a controller-specific follow-up.
 
-No Xteink device was visible to this environment during setup. `lsusb` showed
-only the root hubs, ASUS Aura LED controller, ASMedia hubs, and wireless device;
-there was no Xteink/Espressif USB device and no `/dev/ttyACM*` or `/dev/ttyUSB*`
-serial port. The device therefore could not be flashed or tested here. A charge-
-only cable, powered-off device, or a device that needs a special boot mode could
-explain this; reconnect with a known data cable and check `lsusb`/`dmesg` again.
+The connected device was identified as an ESP32-S3, revision 0.2, with 16 MiB
+flash and 8 MiB PSRAM. After safely ejecting CrossPoint USB Drive mode, it
+re-enumerated as `/dev/ttyACM0` (Espressif USB JTAG/serial). Read-only esptool
+queries confirmed ROM-loader access, Secure Boot disabled, and Flash Encryption
+disabled. A full-flash backup in `~/firmware-backups` was validated against a
+readback of the live device: bytes outside the CrossPoint app partition match
+exactly. See [`docs/x4-pro-hardware-bringup.md`](docs/x4-pro-hardware-bringup.md).
 
 ## Build
 
@@ -35,27 +34,24 @@ export PATH="$HOME/install/alr-2.1.1/bin:$PATH"
 
 `build.sh` selects the embedded runtime profile and calls the shared
 `../ada_esp32s3/examples/common/bare/bare_build.sh`. Outputs are ignored by git.
-No flashing script is provided until device enumeration and board details have
-been confirmed.
+The flash script writes the bare bootloader, the shared partition table, and the
+application over the ESP32-S3 ROM loader. This replaces the existing boot path;
+see the backup/recovery notes before running it.
 
 ## Files
 
 - `src/main.adb` — bare-metal entry point and status logging.
 - `src/x4_display.adb` — experimental SPI display setup and hello framebuffer.
-- `board.ads` — provisional image-header/PSRAM sizing; confirm flash details.
+- `board.ads` — detected 16 MiB flash and a 2 MiB PSRAM mapping.
+- `docs/x4-pro-hardware-bringup.md` — device identity, verified backups, and
+  recovery procedure notes.
 - `sxos.gpr`, `alire.toml` — runtime/HAL project configuration.
 
-## Next hardware steps
+To restore the saved official full-flash dump after a failed custom image, use
+ROM download mode and write the full dump from offset zero (this has not been
+tested as a write):
 
-1. Connect the X4 Pro with a known data-capable USB cable; check USB enumeration
-   and identify whether it exposes ROM download/serial or mass-storage mode.
-2. Identify board revision, display controller, and the actual SPI/CS/DC/RESET/
-   BUSY GPIO mapping from device firmware/source or board documentation.
-3. Confirm flash size and bootloader/partition assumptions before writing any
-   image; preserve/recover the stock firmware first.
-4. Update the board constants and use the controller-specific power, LUT,
-   address-window, and refresh sequence; then validate reset/BUSY on a scope or
-   logic analyzer before sending a full frame.
-5. Render the `hello` framebuffer and test polarity/rotation on the physical
-   panel. The drawing is already separated from panel setup enough to replace
-   the experimental controller code without changing the firmware entry point.
+```sh
+/tmp/x4-esptool/bin/esptool --chip esp32s3 --port /dev/ttyACM0 write-flash \
+  0x0 "$HOME/firmware-backups/xteink-x4-pro-esp32s3-2026-09-23-145826.bin"
+```

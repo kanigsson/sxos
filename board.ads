@@ -1,11 +1,9 @@
 -------------------------------------------------------------------------------
---  Xteink X4 Pro board profile -- VALUES BELOW ARE PROVISIONAL.
---
---  The ESP32-S3R8 SoC family is reported for the X4 Pro, but flash size,
---  display connector GPIOs, and attached e-paper controller must be confirmed
---  on this specific revision before flashing or enabling the panel driver.
+--  Xteink X4 Pro board memory profile.
+--  Flash/PSRAM sizes were read from the connected ESP32-S3 (16 MiB / 8 MiB).
+--  The starter maps 2 MiB of PSRAM because its framebuffer fits comfortably.
 -------------------------------------------------------------------------------
 package Board is
-   Flash_Size : constant := 4 * 1024 * 1024;  --  conservative build-time hint
-   PSRAM_Size : constant := 2 * 1024 * 1024;  --  map only what this starter needs
+   Flash_Size : constant := 16 * 1024 * 1024;
+   PSRAM_Size : constant := 2 * 1024 * 1024;
 end Board;
