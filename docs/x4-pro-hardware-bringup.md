@@ -40,11 +40,44 @@ Both commands connected successfully. Reported hardware:
 
 Esptool uploaded and ran its temporary stub flasher in RAM to perform the queries, then reset the chip. No flash contents were written or erased. The device re-enumerated afterward as Espressif USB JTAG/serial at `/dev/ttyACM0`.
 
-This confirms the ROM download protocol is reachable and chip/flash identification works. It does **not** establish that flash writes are permitted under every security configuration; we have not queried secure-boot/flash-encryption state or attempted a write.
+This confirms the ROM download protocol is reachable and chip/flash identification works. Esptool uploaded and ran its temporary stub in RAM; these queries did not write or erase flash.
 
-## What this means for recovery
+A further read-only query:
 
-The ordinary ESP32-S3 USB recovery path is accessible: esptool was able to connect over the native USB Serial/JTAG interface and run a ROM-loader transaction. That is a strong recovery prerequisite, but it is not a guarantee that every future image can boot or that flash protection is disabled. The original firmware backup was supplied by the operator; its completeness and restore procedure were not independently validated here.
+```sh
+/tmp/x4-esptool/bin/esptool --chip esp32s3 --port /dev/ttyACM0 get-security-info
+```
+
+reported `Secure Boot: Disabled`, `Flash Encryption: Disabled`, and `SPI_BOOT_CRYPT_CNT: 0`. No eFuses were changed.
+
+## Backup validation and recovery confidence
+
+The operator's `~/firmware-backups` contains:
+
+| File | Size | Identification |
+|---|---:|---|
+| `xteink-x4-pro-esp32s3-2026-09-23-145826.bin` | 16,777,216 bytes (16 MiB) | Full raw flash dump |
+| `crosspoint-1.6.0-x4pro.bin` | 5,341,040 bytes | ESP-IDF application image, not a full-flash backup |
+
+SHA-256 values observed:
+
+- Original full dump: `88d16ead9264b5388db67302bc4f06f30f7022df46b7db8cecac09beb3cabd55`
+- CrossPoint app: `d20f91502e779a2ba68d9c2423da1a201d74c55badd47f79f84400a320333167`
+
+To check the backup without writing to the device, the full current 16 MiB flash was read to `/tmp/x4-current-flash.bin`. The original dump's partition table parses successfully as a 16 MiB ESP-IDF layout:
+
+- NVS `0x9000` (20 KiB)
+- OTA metadata `0xe000` (8 KiB)
+- app0 `0x10000` (8064 KiB)
+- app1 `0x7f0000` (8064 KiB)
+- SPIFFS `0xfd0000` (80 KiB)
+- coredump `0xfe4000` (112 KiB)
+
+Comparing the original full dump with the live readback, **every differing byte is inside app0** (`0x10000` through `0x527fff`). All bytes before app0 (including the bootloader and partition table) and all bytes after app0 match exactly. This is consistent with the subsequent CrossPoint app flash replacing app0 while leaving the rest of the original flash intact. It is strong evidence that the supplied backup is a complete, correct dump for this exact device and that the current bootloader/partition layout remains intact.
+
+The ROM download path has been exercised for chip ID, flash ID, security information, and a complete flash read. Secure Boot and Flash Encryption are disabled. This makes a same-device full-flash restore through esptool a credible recovery path, but we have **not** performed a write/restore test; do not describe recovery as mathematically guaranteed. The original backup and its hash should remain preserved outside the reader.
+
+The upstream [FreeInk SDK X4 Pro profile](https://github.com/crosspoint-reader/freeink-sdk/blob/main/libs/hardware/BoardConfig/include/BoardConfig.h) documents the following display wiring as hardware-confirmed: SCLK=GPIO12, MOSI=GPIO11, CS=GPIO13, DC=GPIO18, RESET=GPIO14, BUSY=GPIO6. It says production units may use SSD1677, UC8179, or UC8279 and identifies GPIO1 as the master peripheral-rail enable. This project has not independently tested that profile on this unit. Importantly, the current prototype code's CS/DC/RESET/BUSY constants (10/9/8/7) are wrong according to that profile; GPIO8/9 are the frontlight channels, GPIO10 is the touch interrupt, and GPIO7 is a button. Correct the code and panel power-up sequence before running it on the reader.
 
 To return from USB Drive mode to the serial interface on this CrossPoint installation:
 
@@ -52,15 +85,16 @@ To return from USB Drive mode to the serial interface on this CrossPoint install
 2. Wait for USB to disconnect/re-enumerate as `Espressif USB JTAG/serial debug unit` and for `/dev/ttyACM*` to appear.
 3. A read-only `esptool ... chip-id` query can verify connectivity. Esptool resets the device when it finishes; it does not flash in this query mode.
 
-## Flash decision: do not flash the current sxos image yet
+## Flash decision
 
-Although a recovery interface is now confirmed, the current `sxos` binary is **not ready to flash**:
+From a **recoverable software-brick** perspective, risk is now substantially lower: the ROM downloader works, flash encryption and secure boot are disabled, and the complete original 16 MiB flash image has been structurally validated and compared with the live flash. A boot failure after a software flash should therefore be recoverable by writing that full image back to offset `0x0` over the same USB Serial/JTAG ROM interface. This restore has not actually been tested, so retain the backup and don't call the chance of failure zero.
 
-- `src/x4_display.adb` uses provisional, guessed GPIO assignments. The actual X4 Pro display wiring is not confirmed.
-- The controller type is unverified. `x4_display.adb` assumes an SSD1677-like controller, 800x480 geometry, 1-bpp RAM format, BUSY polarity, and an incomplete generic init/update sequence.
-- `board.ads` and the bare-metal project's bootloader/partition assumptions have not been matched against the live image/layout. The bare build produces a custom bare bootloader; replacing the stock CrossPoint boot path is a larger change than installing an ordinary app binary.
-- Flash write protection/security state and the supplied backup's restore process have not been checked.
+The current `sxos` binary is still **not ready to flash for functional/hardware-safety reasons**:
 
-Wrong panel setup would at best produce a blank/unchanged display; unverified GPIOs may also conflict with board-connected hardware. Replacing bootloader/partition areas with a custom bare-metal image could leave CrossPoint unable to boot until its full flash image is restored. The operator reports that the original firmware is backed up and CrossPoint can be re-downloaded, which improves recovery prospects, but should not substitute for confirming the backup and restore path.
+- `src/x4_display.adb` has incorrect provisional CS/DC/RESET/BUSY assignments relative to the upstream X4 Pro profile, and does not establish the required GPIO1 panel rail.
+- The controller type is unverified on this particular unit. The upstream project documents SSD1677, UC8179, and UC8279 batches; this prototype assumes an SSD1677-like controller, 800x480 geometry, 1-bpp RAM format, BUSY polarity, and an incomplete generic init/update sequence.
+- The bare-metal project's custom bootloader and partition assumptions still need deliberate review before selecting exactly what to write.
 
-Before any sxos write, establish the panel controller and pin map from this board revision, make the first firmware use a compatible/known flash layout, and verify the full-flash backup/restore procedure. No flashing command has been run by this project setup.
+The remaining “brick” risk is not zero: an incorrect flash operation, loss of power during erase/write, hardware damage, or an unexpected tool/USB failure could still require recovery work. However, the device's immutable ROM downloader remains available, and the eFuses report secure boot/encryption disabled; the software-brick risk is therefore much more manageable than it first appeared. The provisional GPIOs also pose a separate board-electrical risk and must be corrected before running display code, even if recovery is available.
+
+Before flashing sxos, identify the panel controller and pin map and choose whether to preserve the known-good CrossPoint bootloader/partition layout or intentionally replace it with the bare-metal boot path. The full original dump is a credible fallback; **no write/restore test or firmware flash has been performed**.
