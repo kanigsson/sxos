@@ -1,0 +1,15 @@
+name = "sxos"
+description = "Bare-metal Ada experiments for the Xteink X4 Pro e-paper reader"
+version = "0.1.0-dev"
+
+licenses = "MIT"
+tags = ["embedded", "esp32s3", "epaper", "xteink", "x4-pro", "ada"]
+
+project-files = ["sxos.gpr"]
+
+[[depends-on]]
+esp32s3_rts = "*"
+
+[[pins]]
+esp32s3_rts = { path = "../ada_esp32s3/crates/esp32s3_rts" }
+xtensa_dynconfig = { path = "../ada_esp32s3/crates/xtensa-dynconfig" }

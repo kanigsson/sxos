@@ -1,0 +1,7 @@
+obj/
+alire/
+.noidf/
+app.bin
+app.elf
+app.map
+partition-table.bin
