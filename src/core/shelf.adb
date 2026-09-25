@@ -38,12 +38,14 @@ is
          while N > 0
            and then Character'Pos (Name (Name'First + N)) / 64 = 2
          loop
+            pragma Loop_Invariant (N < Name'Length and then N <= Max_Name);
+            pragma Loop_Variant (Decreases => N);
             N := N - 1;
          end loop;
       end if;
       L.Count := L.Count + 1;
       L.Books (L.Count).Name := (others => ' ');
-      L.Books (L.Count).Name (1 .. N) := Name (Name'First .. Name'First + N - 1);
+      L.Books (L.Count).Name (1 .. N) := Name (Name'First .. Name'First - 1 + N);
       L.Books (L.Count).Last := N;
       L.Books (L.Count).Size := Size;
    end Add;
@@ -81,6 +83,8 @@ is
             J    : Natural := I - 1;
          begin
             while J >= 1 and then Less (Item, L.Books (J)) loop
+               pragma Loop_Invariant (J < I);
+               pragma Loop_Variant (Decreases => J);
                L.Books (J + 1) := L.Books (J);
                J := J - 1;
             end loop;

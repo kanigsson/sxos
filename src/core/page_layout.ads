@@ -19,21 +19,37 @@ with Truetype;
 package Page_Layout
   with SPARK_Mode => On
 is
+   --  The largest type size laid out, and a bound on every length in a
+   --  Geometry: far beyond any screen, but it keeps sums of a few of them
+   --  clear of overflow.  A face whose metrics exceed it is clamped to it.
+   Max_Size : constant := 1024;
+   Max_Px   : constant := 2**15;
+
+   subtype Px is Natural range 0 .. Max_Px;
+   subtype Positive_Px is Px range 1 .. Max_Px;
+
    type Geometry is record
-      Size        : Positive := 1;   --  pixels per em
-      Col_Width   : Positive := 1;   --  pixels
-      Area_Height : Positive := 1;   --  pixels available for lines
-      Line_Height : Positive := 1;   --  baseline to baseline
-      Ascent      : Natural := 0;    --  top of a line to its baseline
-      Indent      : Natural := 0;    --  first line of a paragraph
-      Para_Gap    : Natural := 0;    --  extra space after a paragraph
+      Size        : Positive range 1 .. Max_Size := 1;   --  pixels per em
+      Col_Width   : Positive_Px := 1;   --  pixels
+      Area_Height : Positive_Px := 1;   --  pixels available for lines
+      Line_Height : Positive_Px := 1;   --  baseline to baseline
+      Ascent      : Px := 0;            --  top of a line to its baseline
+      Indent      : Px := 0;            --  first line of a paragraph
+      Para_Gap    : Px := 0;            --  extra space after a paragraph
       Hyph        : Hyphenation.Trie_Ref := null;   --  none: no patterns
    end record;
 
    --  The reader's proportions for T's face and size, without patterns.
    function Make
      (T : Text_Metrics.Table; F : Truetype.Font;
-      Col_Width, Area_Height : Positive) return Geometry;
+      Col_Width, Area_Height : Positive) return Geometry
+     with Pre => Text_Metrics.Size (T) <= Max_Size
+                 and then Col_Width <= Max_Px and then Area_Height <= Max_Px;
+
+   --  A + B, or Natural'Last when that overflows.  Widths are sums of font
+   --  advances over arbitrary text, so they are added saturating.
+   function Add_Sat (A, B : Natural) return Natural is
+     (if B <= Natural'Last - A then A + B else Natural'Last);
 
    type Line is record
       First      : Positive := 1;   --  first byte
@@ -57,7 +73,9 @@ is
      with Pre  => Text'First = 1 and then Text'Last < Positive'Last
                   and then From <= Text'Last,
           Post => L.First = From and then L.Next > From
-                  and then L.Next <= Text'Last + 1;
+                  and then L.Next <= Text'Last + 1
+                  and then L.Last <= Text'Last,
+          Always_Terminates;
 
    --  Where the page starting at Start ends: the start of the next page, or
    --  Text'Last + 1.  A page always holds at least one line.
