@@ -16,7 +16,6 @@ is
    type Entry_Array is array (Entry_Index) of Entry_Type;
 
    Table  : Entry_Array;
-   Count  : Natural := 0;
    Clock  : Unsigned_32 := 0;     --  the next stamp
 
    Active : Natural range 0 .. 1 := 0;
@@ -26,14 +25,29 @@ is
 
    function Generation return Unsigned_32 is (Gen);
    function Used_Slots return Natural is (Next);
-   function Entries return Natural is (Count);
+
+   --  Counted on demand: a running count would be a second copy of what the
+   --  Used flags already say.
+   function Entries return Natural is
+      N : Natural := 0;
+   begin
+      for I in Entry_Index loop
+         pragma Loop_Invariant (N < I);
+         if Table (I).Used then
+            N := N + 1;
+         end if;
+      end loop;
+      return N;
+   end Entries;
 
    function Slot_Addr (Block : Natural; Slot : Natural) return Unsigned_32 is
      (Base + Unsigned_32 (Block) * Block_Size
       + Unsigned_32 (Slot) * Store_Record.Size)
      with Pre => Block <= 1 and then Slot < Slots;
 
-   function Find (K : Key) return Natural is
+   function Find (K : Key) return Natural
+     with Post => Find'Result <= Max_Entries
+   is
    begin
       for I in Entry_Index loop
          if Table (I).Used and then Table (I).K = K then
@@ -59,6 +73,7 @@ is
       if I = 0 then
          --  Full: forget the least recently written position.
          for J in Entry_Index loop
+            pragma Loop_Invariant (I <= Max_Entries);
             if Table (J).K.Kind /= Settings and then Table (J).Stamp < Oldest
             then
                Oldest := Table (J).Stamp;
@@ -67,9 +82,6 @@ is
          end loop;
       end if;
       if I /= 0 then
-         if not Table (I).Used then
-            Count := Count + 1;
-         end if;
          Table (I) := (Used => True, K => K, P => P, Stamp => Clock);
          Clock := Clock + 1;
       end if;
@@ -85,7 +97,13 @@ is
       Ok   : Boolean;
    begin
       Read (Slot_Addr (Block, 0), R, Ok);
+      --  A header's payload is unused: only its key carries information.
+      pragma Warnings
+        (GNATprove, Off, """P"" is set by ""Decode"" but not used after the call",
+         Reason => "a header record has no payload");
       Decode (R, K, P, Valid);
+      pragma Warnings
+        (GNATprove, On, """P"" is set by ""Decode"" but not used after the call");
       Valid := Ok and then Valid and then K.Kind = Header
         and then K.A = Signature;
       G := (if Valid then K.B else 0);
@@ -104,7 +122,6 @@ is
      with Pre => Block <= 1
    is
    begin
-      Ok := True;
       for S in 0 .. Block_Size / Sector_Size - 1 loop
          Erase (Base + Unsigned_32 (Block) * Block_Size
                 + Unsigned_32 (S) * Sector_Size, Ok);
@@ -115,7 +132,9 @@ is
    --  Load the active block's records into the table, and find Next.
    procedure Scan is
       Chunk_Slots : constant := 16;
-      Buf  : Bytes.Byte_Array (0 .. Chunk_Slots * Store_Record.Size - 1);
+      --  Cleared up front: the reads below each fill a prefix of it.
+      Buf  : Bytes.Byte_Array (0 .. Chunk_Slots * Store_Record.Size - 1) :=
+        [others => 0];
       R    : Image;
       K    : Key;
       P    : Payload;
@@ -125,6 +144,7 @@ is
    begin
       Next := Slots;
       while Slot < Slots loop
+         pragma Loop_Invariant (Slot >= 1);
          N := Natural'Min (Chunk_Slots, Slots - Slot);
          Read (Slot_Addr (Active, Slot), Buf (0 .. N * Store_Record.Size - 1),
                Ok);
@@ -166,7 +186,6 @@ is
       for E of Table loop
          E.Used := False;
       end loop;
-      Count := 0;
       Clock := 0;
       Read_Header (0, V0, G0);
       Read_Header (1, V1, G1);
@@ -203,8 +222,10 @@ is
          return;
       end if;
       loop
+         pragma Loop_Invariant (Slot in 1 .. Slots);
          Pick := 0;
          for I in Entry_Index loop
+            pragma Loop_Invariant (Pick <= Max_Entries);
             if Table (I).Used and then not Done (I)
               and then (Pick = 0 or else Table (I).Stamp < Table (Pick).Stamp)
             then

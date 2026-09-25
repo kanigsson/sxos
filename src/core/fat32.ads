@@ -58,14 +58,20 @@ is
 
    --  Read up to Into'Length bytes starting at byte Offset of F.  Count is
    --  how many were read (fewer only at end of file).  Ok is False on a read
-   --  error or a chain that ends before the file does.
+   --  error or a chain that ends before the file does.  Only the first
+   --  Count bytes of Into are written, and only those when Ok.
    procedure Read
      (V      : in out Volume;
       F      : in out File;
       Offset : Unsigned_32;
       Into   : out Bytes.Byte_Array;
       Count  : out Natural;
-      Ok     : out Boolean);
+      Ok     : out Boolean)
+     with Relaxed_Initialization => Into,
+          Post => Long_Long_Integer (Count) <= Into'Length
+                  and then (if Ok and then Count > 0 then
+                              Into (Into'First .. Into'First + (Count - 1))
+                                'Initialized);
 
 private
 
@@ -76,7 +82,9 @@ private
       Fat_Start     : Unsigned_32 := 0;   --  LBA of the first FAT
       Fat_Size      : Unsigned_32 := 0;   --  blocks per FAT
       Data_Start    : Unsigned_32 := 0;   --  LBA of cluster 2
-      Per_Cluster   : Unsigned_32 := 1;   --  blocks per cluster
+      --  Blocks per cluster: a power of two that fits the boot sector's
+      --  byte, so never 0 and a cluster is at most 64 KB.
+      Per_Cluster   : Unsigned_32 range 1 .. 128 := 1;
       Clusters      : Unsigned_32 := 0;   --  data clusters (2 .. Clusters + 1)
       Root_Cluster  : Unsigned_32 := 2;
       Fat_Cache     : Sector := (others => 0);
