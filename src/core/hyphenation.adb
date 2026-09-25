@@ -311,6 +311,7 @@ is
          Node := Child_Of (T, 0, Pad (S));
          while Node in 1 .. T.Nodes loop
             pragma Loop_Invariant (J in S .. N + 1);
+            pragma Loop_Variant (Increases => J);
             At_V := T.Value (Node);
             if At_V > 0 then
                --  A pattern of J - S + 1 letters matches at S.

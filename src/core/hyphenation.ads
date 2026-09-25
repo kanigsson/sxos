@@ -78,7 +78,8 @@ is
      (T      : Trie;
       Word   : Code_Array;
       Breaks : out Break_Array)
-     with Pre => Word'First = 1 and then Word'Length <= Max_Word
+     with Always_Terminates,
+          Pre => Word'First = 1 and then Word'Length <= Max_Word
                  and then Breaks'First = 1 and then Breaks'Last = Word'Last;
 
    --  A letter of a word for hyphenation: Latin, Greek or Cyrillic.
