@@ -2,9 +2,9 @@ with "../ada_esp32s3/crates/esp32s3_rts/esp32s3_rts.gpr";
 with "../ada_esp32s3/libs/esp32s3_hal/esp32s3_hal.gpr";
 with "vendor/inflate.gpr";
 
---  Experimental Xteink X4 Pro application.  This project deliberately does
---  not enable SPARK or proof tooling; the SoC is ESP32-S3, while panel wiring
---  and controller details still need verification against the physical unit.
+--  sxos, a bare-metal e-reader for the Xteink X4 Pro (ESP32-S3).  The
+--  portable units in src/core are written in the SPARK subset, but no proofs
+--  are run; src/device holds the hardware drivers.
 project SXOS is
    for Target use "xtensa-esp32-elf";
    for Runtime ("Ada") use Esp32s3_Rts.Runtime_Path;
