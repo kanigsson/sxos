@@ -14,6 +14,8 @@ is
 
    Books_Folder : constant String := "Books";
    Fonts_Folder : constant String := "Fonts";
+   --  Hyphenation patterns (Hyphen_Loader); not scanned.
+   Hyphenation_Folder : constant String := "Hyphenation";
 
    --  Readable books (Shelf.Is_Book_Name), sorted.  Subfolders are skipped.
    procedure Scan_Books

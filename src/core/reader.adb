@@ -1,3 +1,4 @@
+with Language_Guess;
 with Page_Layout;
 with Reader_View;
 with Text_Metrics;
@@ -21,7 +22,43 @@ package body Reader is
    Pages   : Natural := 0;             --  0: no text, or it failed
    Shown   : Natural := 0;             --  page
 
+   --  The book's language from its metadata, and the current chapter's.
+   Max_Tag   : constant := 35;
+   Meta_Tag  : String (1 .. Max_Tag);
+   Meta_Last : Natural := 0;
+   Lang_Tag  : String (1 .. Max_Tag);
+   Lang_Last : Natural := 0;
+
    function Text_Last return Natural is (Books.Text_Last (Book));
+
+   procedure Set_Language (Tag : String) is
+      N : constant Natural := Natural'Min (Tag'Length, Max_Tag);
+   begin
+      Lang_Tag (1 .. N) := Tag (Tag'First .. Tag'First + N - 1);
+      Lang_Last := N;
+   end Set_Language;
+
+   --  Pick the language of the chapter just loaded (see the spec) and its
+   --  patterns.
+   procedure Choose_Language (V : in out FS.Volume) is
+      use type Language_Guess.Language;
+      G    : constant Language_Guess.Language :=
+        Language_Guess.Guess (Books.Text (Book) (1 .. Text_Last));
+      Code : constant String := Language_Guess.Code (G);
+      Meta : String renames Meta_Tag (1 .. Meta_Last);
+   begin
+      if G /= Language_Guess.Unknown then
+         --  Keep the metadata's region ("en-GB") when it agrees.
+         if Meta_Last >= 2 and then Meta (1 .. 2) = Code
+           and then (Meta_Last = 2 or else Meta (3) in '-' | '_')
+         then
+            Set_Language (Meta);
+         else
+            Set_Language (Code);
+         end if;
+      end if;
+      Hyphens.Select_Language (V, Lang_Tag (1 .. Lang_Last), Geo.Hyph);
+   end Choose_Language;
 
    --  Load chapter C and lay it out.
    procedure Load (V : in out FS.Volume; C : Positive) is
@@ -32,6 +69,7 @@ package body Reader is
       Pages := 0;
       Shown := 1;
       if Loaded = Books.OK and then Text_Last > 0 then
+         Choose_Language (V);
          Page_Layout.Paginate
            (Metrics, Font, Geo, Books.Text (Book) (1 .. Text_Last),
             Starts.all, Pages, Complete);
@@ -81,6 +119,14 @@ package body Reader is
          Result := Books.Not_A_Book;
          return;
       end if;
+      declare
+         Meta : constant String := Books.Language (Book);
+         N    : constant Natural := Natural'Min (Meta'Length, Max_Tag);
+      begin
+         Meta_Tag (1 .. N) := Meta (Meta'First .. Meta'First + N - 1);
+         Meta_Last := N;
+         Set_Language (Meta_Tag (1 .. N));
+      end;
       Font := F;
       Text_Metrics.Prepare (Metrics, F, Size);
       Geo := Page_Layout.Make
@@ -160,6 +206,7 @@ package body Reader is
      ((Chapter => Current,
        Offset  => (if Pages > 0 then Starts (Shown) else 1)));
 
+   function Language return String is (Lang_Tag (1 .. Lang_Last));
    function Chapter return Natural is (Current);
    function Chapter_Count return Natural is
      (if Opened then Books.Chapter_Count (Book) else 0);

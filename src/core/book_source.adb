@@ -55,6 +55,7 @@ package body Book_Source is
       Free (B.Member);
       Free (B.Text);
       B.Format := Shelf.Unknown;
+      B.Lang := (First => 1, Last => 0);
       B.Chapters := 0;
       B.Member_Size := 0;
       B.Text_Last := 0;
@@ -227,6 +228,7 @@ package body Book_Source is
          return;
       end if;
       B.Opf_Doc := Member_Text (B);
+      B.Lang := Opf.Language (B.Opf_Doc.all);
 
       declare
          Doc   : String renames B.Opf_Doc.all;

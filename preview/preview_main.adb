@@ -192,7 +192,8 @@ begin
                    & Image_Reader.Chapter_Count'Image & ", page"
                    & Image_Reader.Page'Image & " of"
                    & Image_Reader.Page_Count'Image & ", drawn in"
-                   & Duration'Image (Clock - T0) & " s");
+                   & Duration'Image (Clock - T0) & " s, language """
+                   & Image_Reader.Language & """");
       end;
    elsif Argument (2) = "settings" and then Is_Image then
       Settings_View.Draw

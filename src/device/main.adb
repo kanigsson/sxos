@@ -270,7 +270,7 @@ procedure Main is
       Put (Card_Reader.Page_Count);
       Put (" in ");
       Put (Ms_Since (T0));
-      Put (" ms, heap free ");
+      Put (" ms, language """ & Card_Reader.Language & """, heap free ");
       Put (Integer (Heap_Free) / 1024);
       Put_Line (" KB");
       if Result /= Card_Books.OK then

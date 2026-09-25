@@ -23,6 +23,41 @@ is
       return (First => 1, Last => 0);
    end Rootfile;
 
+   function Language (Doc : String) return Span is
+      Pos    : Positive := (if Doc'Length > 0 then Doc'First else 1);
+      Tag    : Span;
+      Found  : Boolean;
+      Result : Span := (First => 1, Last => 0);
+   begin
+      if Doc'Length = 0 then
+         return Result;
+      end if;
+      loop
+         Next_Tag (Doc, Pos, Tag, Found);
+         exit when not Found;
+         if Is_Start (Doc, Tag, "language") and then Pos <= Doc'Last then
+            --  The content, up to the next tag, without white space.
+            Result := (First => Pos, Last => Pos - 1);
+            while Result.Last < Doc'Last and then Doc (Result.Last + 1) /= '<'
+            loop
+               Result.Last := Result.Last + 1;
+            end loop;
+            while Result.First <= Result.Last
+              and then Doc (Result.First) <= ' '
+            loop
+               Result.First := Result.First + 1;
+            end loop;
+            while Result.Last >= Result.First
+              and then Doc (Result.Last) <= ' '
+            loop
+               Result.Last := Result.Last - 1;
+            end loop;
+            return Result;
+         end if;
+      end loop;
+      return Result;
+   end Language;
+
    function Count_Tags (Doc : String; Name : String) return Natural is
       Pos   : Positive := (if Doc'Length > 0 then Doc'First else 1);
       Tag   : Span;

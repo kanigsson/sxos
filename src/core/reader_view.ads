@@ -24,7 +24,7 @@ is
    --  stretch a space beyond Max_Stretch times its width.  Off: without
    --  hyphenation, ~40 characters a line leave justified text full of holes
    --  (German especially); ragged right reads better.
-   Justify     : constant Boolean := False;
+   Justify     : constant Boolean := True;
    Max_Stretch : constant := 3;
 
    --  Draw the page of Text starting at Start.  Page and Pages number it

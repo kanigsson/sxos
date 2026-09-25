@@ -2,6 +2,7 @@ with Bytes;
 with Fat32;
 with Opf;
 with Shelf;
+with Xml_Scan;
 
 --  Open a book from /Books and hand out its text one chapter at a time.
 --
@@ -51,6 +52,10 @@ package Book_Source is
 
    function Chapter_Count (B : Book) return Natural;
 
+   --  The book's language as its metadata gives it (an EPUB's
+   --  <dc:language>, e.g. "de" or "en-US"); empty if unknown, as for TXT.
+   function Language (B : Book) return String;
+
    --  Load chapter I's text; it is Text (B) (1 .. Text_Last (B)) until the
    --  next Load or Close.
    procedure Load
@@ -79,6 +84,7 @@ private
       Opf_Path : String_Access;
       Opf_Doc  : String_Access;
       Spine    : Span_Array_Access;
+      Lang     : Xml_Scan.Span;   --  in Opf_Doc
 
       --  TXT: the whole normalised text and where each section starts
       --  (Chapters + 1 entries; the last is one past the end).
@@ -95,6 +101,9 @@ private
    end record;
 
    function Chapter_Count (B : Book) return Natural is (B.Chapters);
+   function Language (B : Book) return String is
+     (if B.Opf_Doc = null or else not Xml_Scan.Within (B.Opf_Doc.all, B.Lang)
+      then "" else Xml_Scan.Text (B.Opf_Doc.all, B.Lang));
    function Text (B : Book) return String_Access is (B.Text);
    function Text_Last (B : Book) return Natural is (B.Text_Last);
 end Book_Source;

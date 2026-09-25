@@ -1,3 +1,4 @@
+with Hyphenation;
 with Text_Metrics;
 with Truetype;
 
@@ -6,9 +7,11 @@ with Truetype;
 --  The text is what Book_Source hands out: UTF-8 paragraphs separated by LF
 --  (an empty paragraph is a blank line).  A paragraph's first line is
 --  indented and paragraphs are spaced by Para_Gap.  Lines break greedily at
---  spaces, and after a hyphen or dash inside a word; a no-break space
---  (U+00A0) never breaks.  A word wider than the column is cut at a
---  code-point boundary.
+--  spaces, after a hyphen or dash inside a word, and at a soft hyphen
+--  (U+00AD, which is otherwise invisible); a no-break space (U+00A0) never
+--  breaks.  With patterns in Hyph, the word that overflows the line is
+--  hyphenated too, unless it has soft hyphens of its own.  A word wider
+--  than the column is cut at a code-point boundary.
 --
 --  Every line and page is determined by where it starts, so a page is drawn
 --  by setting lines from its start offset again, and a chapter's pages are
@@ -24,9 +27,10 @@ is
       Ascent      : Natural := 0;    --  top of a line to its baseline
       Indent      : Natural := 0;    --  first line of a paragraph
       Para_Gap    : Natural := 0;    --  extra space after a paragraph
+      Hyph        : Hyphenation.Trie_Ref := null;   --  none: no patterns
    end record;
 
-   --  The reader's proportions for T's face and size.
+   --  The reader's proportions for T's face and size, without patterns.
    function Make
      (T : Text_Metrics.Table; F : Truetype.Font;
       Col_Width, Area_Height : Positive) return Geometry;
@@ -39,6 +43,7 @@ is
       Spaces     : Natural := 0;    --  breakable spaces inside the line
       Indented   : Boolean := False;
       Para_End   : Boolean := False;   --  the paragraph's last line
+      Hyphen     : Boolean := False;   --  ends in a hyphen not in the text
    end record;
 
    --  The line starting at From.

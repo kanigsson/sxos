@@ -9,6 +9,7 @@ with UTF8;
 --
 --  A space-like code point the face lacks (no-break space, thin space, ...)
 --  is given the space's glyph, so it keeps its width instead of vanishing.
+--  A soft hyphen (U+00AD) has no glyph and no width.
 package Text_Metrics
   with SPARK_Mode => On
 is

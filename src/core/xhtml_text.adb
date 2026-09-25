@@ -298,8 +298,6 @@ is
    function Is_Space (C : Character) return Boolean is
      (C = ' ' or else C = ASCII.HT or else C = ASCII.LF or else C = ASCII.CR);
 
-   Soft_Hyphen : constant UTF8.Code_Point := 16#AD#;
-
    procedure Convert
      (Input  : String;
       Output : out String;
@@ -370,7 +368,7 @@ is
          elsif Input (P) = '&' then
             Entity_At (Input, P, Code, Next, Ok);
             if Ok then
-               if Code /= Soft_Hyphen and then Code /= 0 then
+               if Code /= 0 then
                   Emit_Separator;
                   UTF8.Append (Output, Last, Code);
                end if;
@@ -384,33 +382,26 @@ is
                P := P + 1;
             end if;
          else
-            if Input (P) = Character'Val (16#C2#) and then P < Input'Last
-              and then Input (P + 1) = Character'Val (16#AD#)
-            then
-               P := P + 2;   --  a literal soft hyphen
-            else
-               Emit_Separator;
-               --  Copy the run of ordinary characters up to the next
-               --  markup, entity, space or soft hyphen in one go.
-               declare
-                  E : Natural := P;
-               begin
-                  while E < Input'Last
-                    and then E - P < Output'Last - Last - 1
-                    and then Input (E + 1) /= '<'
-                    and then Input (E + 1) /= '&'
-                    and then not Is_Space (Input (E + 1))
-                    and then Input (E + 1) /= Character'Val (16#C2#)
-                  loop
-                     E := E + 1;
-                  end loop;
-                  if Last < Output'Last then
-                     Output (Last + 1 .. Last + 1 + (E - P)) := Input (P .. E);
-                     Last := Last + 1 + (E - P);
-                  end if;
-                  P := E + 1;
-               end;
-            end if;
+            Emit_Separator;
+            --  Copy the run of ordinary characters up to the next markup,
+            --  entity or space in one go.
+            declare
+               E : Natural := P;
+            begin
+               while E < Input'Last
+                 and then E - P < Output'Last - Last - 1
+                 and then Input (E + 1) /= '<'
+                 and then Input (E + 1) /= '&'
+                 and then not Is_Space (Input (E + 1))
+               loop
+                  E := E + 1;
+               end loop;
+               if Last < Output'Last then
+                  Output (Last + 1 .. Last + 1 + (E - P)) := Input (P .. E);
+                  Last := Last + 1 + (E - P);
+               end if;
+               P := E + 1;
+            end;
          end if;
          exit when P = Positive'Last;
       end loop;

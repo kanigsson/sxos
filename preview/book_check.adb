@@ -4,9 +4,12 @@
 --                                  chapter, report sizes, status and time
 --    book_check IMAGE NAME OUT     write NAME's text to OUT, one
 --                                  "=== chapter N ===" line per chapter
---    book_check IMAGE --layout [SIZE]
+--    book_check IMAGE --layout [SIZE [nohyph]]
 --                                  also paginate every chapter for the
---                                  Reader at SIZE px and report the time
+--                                  Reader at SIZE px, hyphenated in the
+--                                  chapter's language (Language_Guess, else
+--                                  the book's metadata) unless nohyph, and
+--                                  report the time
 with Ada.Calendar; use Ada.Calendar;
 with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Text_IO; use Ada.Text_IO;
@@ -14,8 +17,10 @@ with Ada.Text_IO; use Ada.Text_IO;
 with Book_Source;
 with Font_Catalog;
 with Font_Loader;
+with Language_Guess;
 with Image_Blocks;
 with Image_FS;
+with Image_Hyphens;
 with Image_Scan;
 with Page_Layout;
 with Reader_View;
@@ -34,6 +39,7 @@ procedure Book_Check is
    B      : Books.Book;
 
    Layout  : Boolean := False;
+   Hyphen  : Boolean := True;
    Font    : Truetype.Font;
    Metrics : Text_Metrics.Table;
    Geo     : Page_Layout.Geometry;
@@ -71,7 +77,17 @@ procedure Book_Check is
                   T1       : constant Time := Clock;
                   Count    : Natural;
                   Complete : Boolean;
+                  G        : constant Language_Guess.Language :=
+                    Language_Guess.Guess
+                      (Books.Text (B) (1 .. Books.Text_Last (B)));
+                  use type Language_Guess.Language;
                begin
+                  if Hyphen then
+                     Image_Hyphens.Select_Language
+                       (V, (if G = Language_Guess.Unknown
+                            then Books.Language (B)
+                            else Language_Guess.Code (G)), Geo.Hyph);
+                  end if;
                   Page_Layout.Paginate
                     (Metrics, Font, Geo,
                      Books.Text (B) (1 .. Books.Text_Last (B)),
@@ -154,6 +170,7 @@ begin
          Geo := Page_Layout.Make
            (Metrics, Font, Reader_View.Col_Width, Reader_View.Area_Height);
          Layout := True;
+         Hyphen := not (Argument_Count >= 4 and then Argument (4) = "nohyph");
       end;
    elsif Argument_Count >= 3 then
       Dump (Argument (2), Argument (3));

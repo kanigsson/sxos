@@ -12,6 +12,11 @@ is
    function Rootfile (Container : String) return Span
      with Post => Within (Container, Rootfile'Result);
 
+   --  The text of the package's first <dc:language>, a BCP 47 tag such as
+   --  "en-US" (empty if there is none).
+   function Language (Doc : String) return Span
+     with Post => Within (Doc, Language'Result);
+
    --  A manifest entry.  Html is False for media types other than
    --  (X)HTML, e.g. an SVG-only page, which the reader cannot show.
    type Item is record

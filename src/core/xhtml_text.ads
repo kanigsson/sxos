@@ -3,7 +3,8 @@
 --  collapsed to one space.  Block elements (p, div, headings, list items,
 --  ...) and <br> end a paragraph; empty paragraphs are dropped.  The
 --  contents of head, script, style and svg are skipped.  CSS is ignored,
---  and so are images.  Soft hyphens are dropped.
+--  and so are images.  Soft hyphens (U+00AD) are kept: they are where
+--  the layout may hyphenate a word.
 package Xhtml_Text
   with SPARK_Mode => On
 is

@@ -16,6 +16,8 @@ is
       then Punct_Base + Integer (C - Punct_First)
       else -1);
 
+   Soft_Hyphen : constant UTF8.Code_Point := 16#AD#;
+
    function Is_Space_Like (C : UTF8.Code_Point) return Boolean is
      (C = 16#A0# or else C in 16#2000# .. 16#200A# or else C = 16#202F#);
 
@@ -36,6 +38,8 @@ is
          G := Truetype.Glyph_Index (F, Unsigned_32 (C));
          if G = 0 and then Is_Space_Like (C) then
             G := Space;
+         elsif C = Soft_Hyphen then
+            G := 0;   --  invisible; the layout draws a hyphen where it breaks
          end if;
          T.Entries (S) :=
            (Glyph   => G,

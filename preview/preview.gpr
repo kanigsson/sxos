@@ -6,7 +6,7 @@ project Preview is
    for Object_Dir use "obj";
    for Exec_Dir use "obj";
    for Main use ("preview_main.adb", "fat_check.adb", "book_check.adb",
-                 "reader_check.adb", "store_check.adb");
+                 "reader_check.adb", "store_check.adb", "hyph_check.adb");
 
    package Compiler is
       --  No -gnatW8: text is raw UTF-8 in String, one byte per Character.

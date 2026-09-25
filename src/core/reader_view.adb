@@ -30,7 +30,8 @@ is
    end Image;
 
    --  One line, with the extra width of a justified line spread over its
-   --  spaces (the first Extra mod Spaces spaces get one pixel more).
+   --  spaces (the first Extra mod Spaces spaces get one pixel more), and the
+   --  hyphen of a word broken at its end.
    procedure Draw_Line
      (Fr       : in out Mono_Frame.Frame;
       F        : Truetype.Font;
@@ -85,6 +86,15 @@ is
             X := X + Text_Metrics.Advance (T, F, C);
          end if;
       end loop;
+
+      if L.Hyphen then
+         Gl := Text_Metrics.Glyph (T, F, Character'Pos ('-'));
+         if Gl /= 0 then
+            Glyph_Cache.Draw
+              (Fr, F, Gl, Size, Gain, Text_Raster.Ink_Threshold,
+               X, Baseline, True, Adv);
+         end if;
+      end if;
    end Draw_Line;
 
    procedure Draw_Footer

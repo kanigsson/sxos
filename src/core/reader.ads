@@ -1,5 +1,6 @@
 with Book_Source;
 with Fat32;
+with Hyphen_Loader;
 with Mono_Frame;
 with Status_Bar;
 with Truetype;
@@ -13,12 +14,18 @@ with Truetype;
 --  reachable.  The position is (chapter, byte offset of the page start):
 --  it survives re-laying out the chapter at another size.
 --
+--  Chapters are hyphenated in their language: the one Language_Guess finds
+--  in the chapter's text when it is sure, else the book's metadata, else
+--  the last chapter's.  Metadata is often wrong (a German book tagged
+--  "en"), which is why the text comes first.
+--
 --  One session at a time: the state is the package's own, and the page
 --  table is on the heap.  Instantiate at library level, not inside a
 --  subprogram, to keep that state off the stack.
 generic
    with package FS is new Fat32 (<>);
    with package Books is new Book_Source (FS => FS, others => <>);
+   with package Hyphens is new Hyphen_Loader (FS => FS, others => <>);
 package Reader is
 
    type Position is record
@@ -51,6 +58,9 @@ package Reader is
 
    function Where return Position
      with Pre => Is_Open;
+
+   --  The current chapter's language tag ("" if unknown).
+   function Language return String;
 
    function Chapter return Natural;
    function Chapter_Count return Natural;
