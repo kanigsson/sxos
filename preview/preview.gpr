@@ -1,0 +1,14 @@
+--  Host build of sxos's portable core (src/core) plus a small driver that
+--  renders screens to PGM files.  Compiles the very units the firmware runs,
+--  so layout and font problems show up here before anything is flashed.
+project Preview is
+   for Source_Dirs use ("../src/core", ".");
+   for Object_Dir use "obj";
+   for Exec_Dir use "obj";
+   for Main use ("preview_main.adb");
+
+   package Compiler is
+      --  No -gnatW8: text is raw UTF-8 in String, one byte per Character.
+      for Default_Switches ("Ada") use ("-O2", "-g", "-gnata", "-gnat2022");
+   end Compiler;
+end Preview;

@@ -82,13 +82,22 @@ Recovered from the hardware-confirmed FreeInk SDK X4 Pro profile (see
 
 ## Files
 
-- `src/main.adb` — entry point: Books list UI, selection highlight, input loop.
-- `src/x4_display.adb` — SPI display setup and rotated portrait framebuffer,
-  plus `Fill_Rect`/inverted-text drawing for the selection bar.
-- `src/x4_touch.adb` — GT911 touch driver (rail power, reset dance, polling).
-- `src/books_list.adb` — bounded read-only FAT32/VFAT SD directory scan.
-- `src/x4_font.ads` — public-domain 5×7 ASCII bitmap font (from the HAL).
+`src/core/` is portable and compiles on the host too (mostly SPARK subset);
+`src/device/` needs the HAL.
+
+- `src/device/main.adb` — entry point: Books list UI, selection, input loop.
+- `src/device/x4_display.adb` — UC8279/SSD1677 controller; ships a `Mono_Frame`.
+- `src/device/x4_touch.adb` — GT911 touch driver (rail power, reset dance, polling).
+- `src/device/books_list.adb` — bounded read-only FAT32/VFAT SD directory scan.
+- `src/core/mono_frame.ads` — 480×800 portrait 1 bpp frame in panel RAM layout.
+- `src/core/truetype*.ads`, `text_raster.ads`, `utf8.ads` — on-device outline
+  font engine (copied from `../epd_common`, owned here), thresholded to 1 bpp.
+- `src/core/shelf.ads`, `status_bar.ads`, `library_view.ads` — the Library
+  screen: sorted book list, battery status bar, paged list layout.
+- `src/core/bitmap_text.ads`, `x4_font.ads` — 5×7 fallback font.
+- `preview/` — host build of `src/core` that renders screens to PGM.
 - `board.ads` — 16 MiB flash; all 8 MiB PSRAM mapped.
+- `docs/PLAN.md` — e-reader plan and milestones.
 - `docs/x4-pro-hardware-bringup.md` — USB, flash, backup, and recovery notes.
 - `docs/x4-pro-display-bringup.md` — panel pinout, UC8279 refresh, orientation.
 - `docs/x4-pro-storage.md` — verified SD wiring, FAT32 listing, limitations.

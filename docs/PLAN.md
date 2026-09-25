@@ -99,7 +99,7 @@ problems are fixed there, not by flashing.
 | # | Milestone | Main risk |
 |---|---|---|
 | M0 ✓ | Verify the rotation and touch-mapping fixes on the device; commit that work; remove machine-specific paths; add `CLAUDE.md`; map 8 MB PSRAM | — |
-| M1 | Copy the text engine; `Mono_Frame` (1 bpp portrait); host preview harness | text engine decoupled from `Canvas`/`Frame_Buffer` |
+| M1 ✓ | Copy the text engine; `Mono_Frame` (1 bpp portrait); host preview harness | text engine decoupled from `Canvas`/`Frame_Buffer` |
 | M2 | FAT32 split into pure parser + `Card`; open/read files; load TTF from `/Fonts`; Library rendered in TrueType; `Gauge` + status bar | SD read throughput for a ~1 MB font |
 | M3 | **UC8279 fast/partial refresh** for page turns; full refresh every N turns | **highest — register/waveform sequence must be taken from FreeInk/CrossPoint and confirmed on the device** |
 | M4 | Book sources: TXT stream; EPUB via ZIP directory + Inflate + OPF spine + XHTML → text | Inflate is the largest new component |

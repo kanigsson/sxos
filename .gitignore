@@ -5,3 +5,5 @@ app.bin
 app.elf
 app.map
 partition-table.bin
+preview/obj/
+*.pgm
