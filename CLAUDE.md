@@ -20,11 +20,18 @@ Only what is not guessable from the tree is recorded here.
 - The text engine (`Truetype`, `Truetype.Raster`, `Glyphs`, `Text_Raster`) is
   a **copy** from `../epd_common`, owned by sxos. Diverge freely; do not
   sync it back.
+- `vendor/inflate` (github.com/kanigsson/inflate) is the user's own library,
+  used as is: only `Inflate.Raw` and `Inflate.CRC32`. Where its design does
+  not fit sxos, add to `docs/inflate-notes.md` instead of patching it here.
+- Avoid functions returning unconstrained `String`s (`Text`, slices through
+  expression functions) in per-byte or per-tag loops: each call copies to
+  the secondary stack. That made `Xhtml_Text` 3x slower.
 
 ## Build and flash
 
-Needs `alr` (Alire 2.x) on `PATH` and the sibling `../ada_esp32s3` checkout
-(runtime, HAL, and the shared bare build/flash scripts).
+Needs `alr` (Alire 2.x) on `PATH`, the sibling `../ada_esp32s3` checkout
+(runtime, HAL, and the shared bare build/flash scripts), and the
+`vendor/inflate` submodule (`git submodule update --init`).
 
 ```sh
 ./build.sh                                              # -> app.bin
@@ -32,6 +39,10 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
 ```
 
 - The port is positional, not `-p`.
+- The target builds **without `-gnata`**; the host preview keeps it, so
+  contracts are checked there. The shared build script does not recompile
+  on a switch change alone: after editing switches in `sxos.gpr`, build once
+  with `FORCE_BUILD=-f ./build.sh`.
 - Flashing uses the Ada `esp_flash` host tool (no esptool). Use
   `ESP_FLASH_MONITOR=1`: the console is the native USB Serial/JTAG and a
   monitor attached after the reset misses the boot log. The monitor never
@@ -81,7 +92,9 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
 ## Testing against a card image
 
 `preview/obj/fat_check` runs `Fat32` over a FAT32 disk image (list
-directories, or read a file back whole and in odd-sized chunks), and
+directories, or read a file back whole and in odd-sized chunks),
+`preview/obj/book_check IMAGE [BOOK OUT.txt]` opens every book and loads
+every chapter (or dumps one book's text), and
 `preview/preview.sh CARD.img library out.pgm` renders through the same
 `Fat32`/`Card_Scan`/`Font_Loader` chain the firmware uses. Make an image with
 `mkfs.fat -C -F 32 -S 512 -s 8 card.img 65536` and fill it with any FAT tool

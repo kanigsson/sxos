@@ -1,0 +1,3 @@
+[submodule "vendor/inflate"]
+	path = vendor/inflate
+	url = https://github.com/kanigsson/inflate

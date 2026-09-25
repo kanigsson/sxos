@@ -33,6 +33,18 @@ work; run `sync` and eject the card on the Android side before moving it.
 
 Make a directory `CARD/` with `Books/` and `Fonts/` holding the same files
 (`preview/preview.sh CARD library out.pgm`), and a FAT32 image of it for
-`fat_check` and `preview.sh CARD.img ...` — see "Testing against a card
-image" in `CLAUDE.md`. Add a few made-up names with Greek, Cyrillic and
-emoji to `Books/` for the long-name and fallback paths.
+`fat_check`, `book_check` and `preview.sh CARD.img ...` — see "Testing
+against a card image" in `CLAUDE.md`. Add a few made-up names with Greek,
+Cyrillic and emoji to `Books/` for the long-name and fallback paths.
+
+For the TXT paths, add to the image's `/Books`:
+
+- a Project Gutenberg plain text (e.g. `pg3070.txt`, *The Hound of the
+  Baskervilles*: CRLF, hard-wrapped, 340 KB, so several sections);
+- a Windows-1252 file with German umlauts and a dash, hard-wrapped;
+- a UTF-8 file with a BOM, one paragraph per line, with a blank-line scene
+  break or two.
+
+The EPUBs cover a single huge chapter (`ai-classics`: 408 KB of XHTML),
+many tiny ones (Musil: 1664 spine items, one with no manifest entry, and a
+107 KB central directory), and ordinary Gutenberg EPUBs.

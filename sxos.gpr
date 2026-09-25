@@ -7,7 +7,9 @@ with "../ada_esp32s3/libs/esp32s3_hal/esp32s3_hal.gpr";
 project SXOS is
    for Target use "xtensa-esp32-elf";
    for Runtime ("Ada") use Esp32s3_Rts.Runtime_Path;
-   for Source_Dirs use ("src/core", "src/device");
+   --  vendor/inflate is a git submodule (github.com/kanigsson/inflate, SPARK
+   --  DEFLATE); only its raw decoder and CRC-32 are used.
+   for Source_Dirs use ("src/core", "src/device", "vendor/inflate/src");
    for Object_Dir use "obj";
    for Main use ("main.adb");
 
@@ -20,7 +22,9 @@ project SXOS is
    end Binder;
 
    package Compiler is
-      for Switches ("Ada") use ("-O2", "-g", "-gnata", "-gnat2022");
+      --  No -gnata on the target: contracts are checked in the host
+      --  preview build, which compiles the same core.
+      for Switches ("Ada") use ("-O2", "-g", "-gnat2022");
    end Compiler;
 
    package Linker is

@@ -36,8 +36,10 @@ grayscale, frontlight control.
    |
    +-- UI            SPARK  (State, Event) -> (State, Redraw); pure
    +-- Layout        SPARK  wrap, paginate, page-start table
-   +-- Book sources  SPARK  TXT stream | EPUB: ZIP dir, Inflate, OPF spine,
-   |                        XHTML -> paragraph stream (entities, whitespace)
+   +-- Book sources  SPARK  Plain_Text (TXT) | EPUB: Zip (directory only),
+   |                        Opf (spine), Xhtml_Text (paragraph text);
+   |                        Inflate.Raw from vendor/inflate; Book_Source
+   |                        (not SPARK) loads chapters into PSRAM
    +-- FAT32         SPARK  boot sector / dir entries / LFN / cluster chains
    |                        over caller-supplied sectors (no I/O inside)
    +-- Text engine   SPARK-ish  Truetype, Raster, Text_Raster (copied)
@@ -105,7 +107,7 @@ problems are fixed there, not by flashing.
 | M1 ✓ | Copy the text engine; `Mono_Frame` (1 bpp portrait); host preview harness | text engine decoupled from `Canvas`/`Frame_Buffer` |
 | M2 ✓ | FAT32 split into pure parser + `Card`; open/read files; load TTF from `/Fonts`; Library rendered in TrueType; `Gauge` + status bar | SD read throughput for a ~1 MB font |
 | M3 ✓ | **UC8279 fast/partial refresh** for page turns; full refresh every N turns | **highest — register/waveform sequence must be taken from FreeInk/CrossPoint and confirmed on the device** |
-| M4 | Book sources: TXT stream; EPUB via ZIP directory + Inflate + OPF spine + XHTML → text | Inflate is the largest new component |
+| M4 ✓ | Book sources: TXT stream; EPUB via ZIP directory + Inflate + OPF spine + XHTML → text | Inflate is the largest new component |
 | M5 | Reader: pagination, page turns, overlay, back to Library | layout speed on long chapters |
 | M6 | `Store`: positions and settings in internal flash | ROM flash calls from the bare runtime (cache/interrupt handling) |
 | M7 | Settings screen (font face and size), shared by both screens | — |
@@ -116,9 +118,50 @@ parser part), M4 and M5 can mostly be developed against the host preview.
 
 ## Status and next steps
 
-M0–M3 are done and confirmed on the glass (see the table): the device boots
+M0–M4 are done and confirmed on the device (see the table): the device boots
 into the Library, rendered with DejaVu Serif from the card, with a working
 battery gauge; the user found the Library's type size good.
+
+**M4 (book sources)**, confirmed on the device (opening a book only logs
+it for now; the Reader screen is M5). The rules below apply to any EPUB, not
+only the test books:
+
+- `Book_Source` (generic over `Fat32`, like `Font_Loader`) opens a book and
+  hands out one chapter's text at a time: UTF-8 paragraphs separated by LF.
+  `Text (B) (1 .. Text_Last (B))` is valid until the next `Load`.
+- **EPUB:** only the ZIP central directory and the OPF stay in PSRAM; each
+  chapter is read, inflated (`Inflate.Raw`, from the `vendor/inflate`
+  submodule), CRC-checked and converted on `Load`, so a book's size is
+  bounded only by its largest chapter (`Max_Chapter`, 2 MB of XHTML). Spine
+  items with no manifest entry or a non-HTML media type are skipped, so
+  chapter numbers are spine positions *after* that filtering. No ZIP64 and
+  no encryption: a DRM'd book fails with `Bad_Data`. Why sxos has its own
+  `Zip` unit instead of `Inflate.ZIP`: `docs/inflate-notes.md`.
+- **XHTML → text** (`Xhtml_Text`): block elements and `<br>` end paragraphs,
+  empty paragraphs are dropped, white space is collapsed, the XML entities,
+  Latin-1 and common typographic entities and numeric references are
+  decoded, soft hyphens are dropped, and `head`/`script`/`style`/`svg` are
+  skipped. Headings come out as plain paragraphs (no emphasis yet).
+- **TXT** (`Plain_Text`): UTF-8, or Windows-1252 when not valid UTF-8; a BOM
+  is dropped. Hard-wrapped text (blank lines, and short lines) has single
+  line breaks joined; otherwise every line is a paragraph. A single-spaced
+  list in hard-wrapped text (e.g. a Gutenberg table of contents) is joined
+  into one paragraph. The whole file (up to 3 MB) is normalised at open and
+  served as ~64 KB sections cut at paragraph ends, so a long TXT is never
+  one huge chapter to lay out. A reading position is (section, offset), the
+  same as for EPUB chapters.
+- Measured on the device: Musil (1663 chapters, 107 KB directory, 183 KB OPF)
+  opens in 0.29 s; the largest test chapter (408 KB XHTML → 283 KB text)
+  loads in 0.38 s; typical chapters in 2–90 ms. The heap returns to the same
+  free size after each book, so buffers are not leaking. On the host,
+  `preview/obj/book_check IMAGE` loads every chapter of every book in an
+  image, and its text matched an independent Python extraction.
+
+**Next: M5 (Reader)** — lay out a chapter's paragraphs into pages with the
+Truetype engine at the reading font size, page turns (Fast refresh), skip
+empty chapters (covers), the overlay, and back to the Library. Build the
+page-start table per chapter by a measure-only pass; the largest test chapter
+is 283 KB of text, so check its layout time on the host first.
 
 **M3 (fast refresh)** is ported from the FreeInk SDK's X4 Pro UC8279 driver
 (github.com/Free-Ink/freeink-sdk, MIT,
@@ -140,9 +183,6 @@ re-write after a refresh until the next one. FreeInk also has a 4-level
 grayscale (AA) path with external LUTs and inverted planes — out of scope
 for now, but the natural next display step.
 
-**Next: M4 (book sources)** — TXT stream, then EPUB (ZIP directory, Inflate,
-OPF spine, XHTML → paragraph stream), developed against the host preview.
-
 Useful facts for later milestones:
 
 - **Input (M5):** besides Left (GPIO0), Right (GPIO7) and Power (GPIO3), the
@@ -158,8 +198,7 @@ Useful facts for later milestones:
 
 - Whether 10 fast updates between Clean refreshes is right for page turns of
   full-page text (tuned only on the Library so far).
-- EPUB edge cases to handle in v1: `<br>`, `<p>`/`<div>`/headings as
-  paragraph breaks, `&nbsp;` and numeric entities, images skipped, CSS
-  ignored. DRM-protected files show an error.
-- Whether a chapter can exceed the PSRAM budget (unlikely, but it must fail
-  cleanly).
+- Whether the Reader should mark headings (centred, spaced) once there is
+  emphasis support; `Xhtml_Text` currently drops that information.
+- `&nbsp;` is kept as U+00A0: the M5 layout must treat it as a non-breaking
+  space.
