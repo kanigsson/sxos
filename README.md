@@ -7,31 +7,16 @@ run SPARK proofs.
 
 ## Current state
 
-The initial firmware experiment displayed `hello` on the panel (UC8279
-LUT_VER `0x68`). The current firmware powers the SD card, reads the root
-`/Books` directory from a **FAT32** card, and displays up to 17 entries in
-480×800 portrait orientation (including directories marked `>`). It uses a
-scaled ASCII bitmap font; non-ASCII VFAT characters currently show as `?`.
-Long names are shortened to 36 characters and later entries are not displayed.
-Card/mount errors are shown on the screen and USB serial log; the card is never
-written. The reader accepts MBR FAT32 partitions or a FAT32 boot sector at LBA 0
-(not GPT/exFAT). The SD initialization, FAT32 `/Books` read, and on-screen
-listing were **confirmed on hardware**. The first portrait listing was upside
-down; the corrected rotation is **confirmed on hardware**.
-The SD wiring is X4 Pro SDMMC slot 1, 1-bit (CLK 41, CMD 42, D0 40), with
-active-low GPIO5 card power; GPIO1 is the shared peripheral rail. See
-[`docs/x4-pro-storage.md`](docs/x4-pro-storage.md) for the card/filesystem
-findings and [`docs/x4-pro-display-bringup.md`](docs/x4-pro-display-bringup.md)
-for the panel and portrait orientation notes.
+The device boots into the **Library**: it mounts the FAT32 microSD card, lists
+the `.epub`/`.txt` files in `/Books` (sorted, long UTF-8 names), loads a
+TrueType face from `/Fonts` into PSRAM and renders the list with it, with a
+battery indicator from the CW2017 gauge. Left/Right move the selection, a tap
+selects a book; opening one is logged only (the reader is milestone M5). Every
+screen change is still a full UC8279 refresh. See [`docs/PLAN.md`](docs/PLAN.md).
 
-The list now supports **selection**: the selected entry is drawn as an inverted
-black highlight bar (white text), the **left/right nav buttons** (Left=GPIO0,
-Right=GPIO7, active-low with pull-ups) move the selection up/down the list, and
-**tapping the panel** selects the entry under the finger. Each selection change
-redraws the full portrait frame and runs a full UC8279 refresh (a few seconds,
-with the usual full flash cycle). Selection itself has no follow-on action yet;
-the choice is logged on USB serial. Buttons and tap-to-row selection are
-**confirmed on hardware**. See [Input & touch](#input--touch) for the wiring.
+The card is never written. `/Fonts` may hold several families: only the
+regular faces are offered, and `DejaVuSerif.ttf` is the default when present.
+If no font can be loaded, the screen says so in the built-in 5×7 font.
 
 The connected device was identified as an ESP32-S3, revision 0.2, with 16 MiB
 flash and 8 MiB PSRAM. After safely ejecting CrossPoint USB Drive mode, it
@@ -88,14 +73,19 @@ Recovered from the hardware-confirmed FreeInk SDK X4 Pro profile (see
 - `src/device/main.adb` — entry point: Books list UI, selection, input loop.
 - `src/device/x4_display.adb` — UC8279/SSD1677 controller; ships a `Mono_Frame`.
 - `src/device/x4_touch.adb` — GT911 touch driver (rail power, reset dance, polling).
-- `src/device/books_list.adb` — bounded read-only FAT32/VFAT SD directory scan.
+- `src/device/card.adb` — SDMMC slot power/init and block reads.
+- `src/device/gauge.adb` — CW2017 fuel gauge (profile upload) + charge line.
+- `src/core/fat32.ads` — read-only FAT32/VFAT over any block reader.
+- `src/core/card_scan.ads`, `font_catalog.ads`, `font_loader.ads` — /Books
+  and /Fonts scanning, face selection, loading a face into the heap.
 - `src/core/mono_frame.ads` — 480×800 portrait 1 bpp frame in panel RAM layout.
 - `src/core/truetype*.ads`, `text_raster.ads`, `utf8.ads` — on-device outline
   font engine (copied from `../epd_common`, owned here), thresholded to 1 bpp.
 - `src/core/shelf.ads`, `status_bar.ads`, `library_view.ads` — the Library
   screen: sorted book list, battery status bar, paged list layout.
 - `src/core/bitmap_text.ads`, `x4_font.ads` — 5×7 fallback font.
-- `preview/` — host build of `src/core` that renders screens to PGM.
+- `preview/` — host build of `src/core`: renders screens to PGM from a
+  directory or a FAT32 image; `fat_check` tests `Fat32` against an image.
 - `board.ads` — 16 MiB flash; all 8 MiB PSRAM mapped.
 - `docs/PLAN.md` — e-reader plan and milestones.
 - `docs/x4-pro-hardware-bringup.md` — USB, flash, backup, and recovery notes.

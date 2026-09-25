@@ -1,4 +1,5 @@
 with Interfaces; use Interfaces;
+with Bytes;
 
 --  Minimal TrueType (sfnt) outline reader -- the parsing half of an ON-DEVICE
 --  text renderer.
@@ -26,7 +27,7 @@ package Truetype
   with SPARK_Mode => On
 is
 
-   type Byte_Array is array (Natural range <>) of Unsigned_8;
+   subtype Byte_Array is Bytes.Byte_Array;
 
    --  The font file, read in place.  On the host this is a mapped/loaded file;
    --  on the target it would be a flash or PSRAM region -- nothing here copies

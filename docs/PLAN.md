@@ -65,8 +65,11 @@ problems are fixed there, not by flashing.
 - **Memory:** map all 8 MB of PSRAM (`board.ads` currently maps 2 MB). The
   font file, the current chapter's inflated text and the page-start table live
   there. DRAM keeps the framebuffer(s) and the rasteriser's working buffers.
-- **Font:** the first `*.ttf` in `/Fonts` (alphabetical), read whole into
-  PSRAM and handed to `Truetype.Open`. Must be TrueType-flavoured (`glyf`) —
+- **Font:** the regular `*.ttf` faces in `/Fonts` (style variants such as
+  `-Bold`/`-Italic` are recognised by name and kept for later emphasis
+  support). The face is a setting; the default is `DejaVuSerif.ttf` if
+  present, else the first regular face by name. It is read whole into PSRAM
+  and handed to `Truetype.Open`. Must be TrueType-flavoured (`glyf`) —
   the parser does not read CFF/`.otf`. A static TTF such as Charis SIL,
   Literata or Noto Serif covers Latin/Greek/Cyrillic. With no usable font,
   error screens fall back to the built-in 5×7 bitmap font.
@@ -100,12 +103,12 @@ problems are fixed there, not by flashing.
 |---|---|---|
 | M0 ✓ | Verify the rotation and touch-mapping fixes on the device; commit that work; remove machine-specific paths; add `CLAUDE.md`; map 8 MB PSRAM | — |
 | M1 ✓ | Copy the text engine; `Mono_Frame` (1 bpp portrait); host preview harness | text engine decoupled from `Canvas`/`Frame_Buffer` |
-| M2 | FAT32 split into pure parser + `Card`; open/read files; load TTF from `/Fonts`; Library rendered in TrueType; `Gauge` + status bar | SD read throughput for a ~1 MB font |
+| M2 ✓ | FAT32 split into pure parser + `Card`; open/read files; load TTF from `/Fonts`; Library rendered in TrueType; `Gauge` + status bar | SD read throughput for a ~1 MB font |
 | M3 | **UC8279 fast/partial refresh** for page turns; full refresh every N turns | **highest — register/waveform sequence must be taken from FreeInk/CrossPoint and confirmed on the device** |
 | M4 | Book sources: TXT stream; EPUB via ZIP directory + Inflate + OPF spine + XHTML → text | Inflate is the largest new component |
 | M5 | Reader: pagination, page turns, overlay, back to Library | layout speed on long chapters |
 | M6 | `Store`: positions and settings in internal flash | ROM flash calls from the bare runtime (cache/interrupt handling) |
-| M7 | Settings screen (font size), shared by both screens | — |
+| M7 | Settings screen (font face and size), shared by both screens | — |
 | M8 | Polish: sorted and paged Library, power button → deep sleep, idle sleep | wake sources on this board |
 
 M3 is independent and can be done whenever the device is at hand. M1, M2 (the

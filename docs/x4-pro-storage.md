@@ -1,7 +1,7 @@
 # X4 Pro SD card and Books listing
 
-Status: **confirmed on hardware** for SD initialization, FAT32 directory reading, and
-on-screen listing. The portrait orientation correction is also confirmed (see
+Status: **confirmed on hardware** for SD initialization, FAT32 directory reading,
+file reads, and on-screen listing. The portrait orientation correction is also confirmed (see
 [display bring-up](x4-pro-display-bringup.md)).
 
 ## Wiring and power
@@ -21,17 +21,23 @@ the SD slot, not the transport used by the working firmware.
 
 ## Filesystem and scope
 
-`src/books_list.adb` is a bounded, read-only FAT32 reader. It accepts either an
-MBR FAT32 partition (type 0x0B/0x0C) or a FAT32 boot sector at sector zero,
-checks the boot sector and cluster count, walks the root directory to find
-`Books` (case-insensitive ASCII), then reads its entries. It follows FAT32
-cluster chains, decodes VFAT long names (with short-name checksum validation)
-and falls back to 8.3 names. No SD writes are performed. Directories get a `>`
-prefix; the first 17 entries in disk order are displayed. Names over 36
-characters are shortened with `...`. Non-ASCII UCS-2 characters currently
-render as `?`; only ASCII glyphs are included. There is no pagination, sorting,
-file opening, GPT, FAT16, or exFAT support. An absent folder, empty folder,
-unsupported filesystem, or read error is displayed instead of a listing.
+`src/core/fat32.adb` is a read-only FAT32 reader, generic over a block-read
+procedure (`src/device/card.adb` supplies the SD one). It accepts an MBR FAT32
+partition (type 0x0B/0x0C) or a FAT32 boot sector at block zero, walks
+directories with VFAT long names (checksum-validated, decoded to UTF-8
+including surrogate pairs; 8.3 names with the NT lower-case flags otherwise),
+looks paths up case-insensitively, and reads files at any byte offset — whole
+blocks go straight into the caller's buffer, one multi-block read per
+cluster. Every chain walk is bounded by the cluster count. No GPT, FAT12/16 or
+exFAT, and nothing is ever written.
+
+`src/core/card_scan.adb` lists `/Books` (`.epub`/`.txt`, sorted) and the
+regular `.ttf` faces in `/Fonts`. The first on-device run read a 380 KB font
+in 165 ms at the 20 MHz 1-bit clock.
+
+The parser is tested on the host against a FAT32 image with long UTF-8 names
+and a deliberately fragmented file (`preview/obj/fat_check`); every file read
+back byte-identical, whole and in odd-sized chunks.
 
 ## Observed test
 

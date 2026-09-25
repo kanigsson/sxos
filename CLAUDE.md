@@ -65,9 +65,34 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
   `--mode=check` is only a partial check; use `check_all`.
 - Never compile with `-gnatW8`: text is raw UTF-8 in `String`.
 
+## Memory
+
+- **The environment stack is 64 KB and an overflow is silent** (the program
+  just hangs). Keep large objects off it: the frame, volume and font catalogue
+  are library-level in `App_State`; bigger tables go on the heap.
+- **The Ada heap is in PSRAM** (`HEAP_PSRAM=1` in `build.sh`, all 8 MiB):
+  `new Bytes.Byte_Array (...)` is how font files and book text get loaded.
+  The SD driver reads through the FIFO (no DMA), so reading straight into
+  PSRAM buffers is fine.
+- Ada is case-insensitive: a local `Ok : Boolean` hides an enumeration
+  literal `OK` in the same scope. Name such locals `Read_Ok`, `Walk_Ok`, ...
+
+## Testing against a card image
+
+`preview/obj/fat_check` runs `Fat32` over a FAT32 disk image (list
+directories, or read a file back whole and in odd-sized chunks), and
+`preview/preview.sh CARD.img library out.pgm` renders through the same
+`Fat32`/`Card_Scan`/`Font_Loader` chain the firmware uses. Make an image with
+`mkfs.fat -C -F 32 -S 512 -s 8 card.img 65536` and fill it with any FAT tool
+(e.g. the `pyfatfs` Python package); create/delete files first to get a
+fragmented chain.
+
 ## Hardware gotchas
 
 - GPIO1 is the master peripheral rail — raise it before panel, SD or touch.
 - A UC8279 refresh is a full refresh (seconds, with flashing) until M3 lands.
 - The SD card is **read-only** by design; persistent state goes to internal
   flash (see `docs/PLAN.md`).
+- The CW2017 gauge reads 0 % until the X4 Pro battery profile is loaded;
+  `Gauge.Initialize` checks and uploads it. It shares I2C0 with the GT911,
+  so `X4_Touch.Initialize` (which sets the bus up) must run first.
