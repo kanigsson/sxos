@@ -2,7 +2,8 @@
 
 Bare-metal Ada e-reader for the Xteink X4 Pro (ESP32-S3, UC8279 800×480 1 bpp
 SPI panel, SDMMC card, GT911 touch). No ESP-IDF, no FreeRTOS, no Wi-Fi. The
-plan and milestones are in `docs/PLAN.md`; hardware findings in `docs/`.
+plan, milestones and **current status / next steps** are in `docs/PLAN.md`;
+hardware findings in `docs/`; the test card in `docs/test-card.md`.
 
 Only what is not guessable from the tree is recorded here.
 

@@ -114,12 +114,43 @@ problems are fixed there, not by flashing.
 M3 is independent and can be done whenever the device is at hand. M1, M2 (the
 parser part), M4 and M5 can mostly be developed against the host preview.
 
+## Status and next steps
+
+M0–M2 are done and on the device (see the table). The device boots into the
+Library, rendered with DejaVu Serif from the card, with a working battery
+gauge. Two things are still open from M2: the user has not yet confirmed the
+TrueType Library visually on the glass (the boot log is clean and the host
+preview of the same code looks right), and every screen change is still a
+multi-second full refresh.
+
+**M3 — fast refresh.** Start from the FreeInk SDK (github.com/Free-Ink/
+freeink-sdk, MIT): `libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.{h,cpp}`
+is the X4 Pro UC8279 driver, with a hardware-validated **DU partial refresh**
+(it needs a PTL partial window; see its `displayStart`), the fast-refresh
+`TSSET`/`CDI` values, and the resync (full refresh) policy. Its validation
+was on a `LUT_VER=0x02` unit; this one reports `0x68`, which the driver
+routes the same way. `docs/xteink-x4pro-support.md` there has the evidence.
+The same driver also has a 4-level grayscale (AA) path with external LUTs and
+inverted planes — out of scope for now, but the natural next step after DU.
+`X4_Display.Show` already keeps DTM1 as the old plane after each refresh
+(`Write_UC_Old_Frame`), which is what a differential DU update drives from.
+
+Useful facts for later milestones:
+
+- **Input (M5):** besides Left (GPIO0), Right (GPIO7) and Power (GPIO3), the
+  GT911 has a capacitive **Home key** (FreeInk's X4 Pro profile:
+  `hasHomeKey`) — a natural Back button.
+- **Charging:** the charger's STAT line is GPIO21, active high; `Gauge.Read`
+  already reports it.
+- **Open decision:** the font-size setting applies to the reading text only;
+  the Library and status bar use fixed sizes. Proposed to the user, not yet
+  confirmed.
+- **Test data:** `docs/test-card.md`.
+
 ## Open questions
 
 - UC8279 fast-refresh sequence and how many fast refreshes can be done before
   ghosting requires a full refresh.
-- Which buttons, besides Left (GPIO0), Right (GPIO7) and Power (GPIO3), the
-  X4 Pro exposes.
 - EPUB edge cases to handle in v1: `<br>`, `<p>`/`<div>`/headings as
   paragraph breaks, `&nbsp;` and numeric entities, images skipped, CSS
   ignored. DRM-protected files show an error.
