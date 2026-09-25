@@ -11,11 +11,28 @@ is
    --  Bounds-checked big-endian readers.  Every one takes the absolute offset
    --  into F.Data and reports success, so a truncated font can never read out
    --  of range -- the whole file is untrusted input.
+   --
+   --  An offset handed in is a table offset (at most Max_Data) plus at most a
+   --  few 16-bit quantities from the file, which Max_Reach covers with room to
+   --  spare.  A successful read also proves its offset lies below Max_Data,
+   --  which is what lets a cursor advanced past it stay bounded.
    ---------------------------------------------------------------------------
 
-   procedure U8 (F : Font; At_Off : Natural; V : out Unsigned_8; Ok : in out Boolean) is
+   Max_Reach : constant := 2**30;
+
+   --  A glyph entry's offset: the glyf table's offset plus an entry offset
+   --  that is itself bounded by the table's length.  A cursor walking the
+   --  entry may run a few 16-bit quantities past that before a read fails.
+   Max_Base : constant := 2 * Max_Data;
+   Max_Cursor : constant := Max_Base + 2**18;
+
+   procedure U8 (F : Font; At_Off : Natural; V : out Unsigned_8; Ok : in out Boolean)
+     with Post => (if Ok then Ok'Old and then At_Off < Max_Data)
+   is
    begin
-      if not Ok or else At_Off > F.Data'Last then
+      if not Ok or else F.Data = null or else At_Off >= Max_Data
+        or else At_Off not in F.Data'Range
+      then
          Ok := False;
          V := 0;
       else
@@ -23,7 +40,11 @@ is
       end if;
    end U8;
 
-   procedure U16 (F : Font; At_Off : Natural; V : out Natural; Ok : in out Boolean) is
+   procedure U16 (F : Font; At_Off : Natural; V : out Natural; Ok : in out Boolean)
+     with Pre  => At_Off <= Max_Reach,
+          Post => V <= 65_535
+                  and then (if Ok then Ok'Old and then At_Off + 1 < Max_Data)
+   is
       A, B : Unsigned_8;
    begin
       U8 (F, At_Off, A, Ok);
@@ -32,14 +53,21 @@ is
    end U16;
 
    --  Signed 16-bit (two's complement), the coordinate/metric encoding.
-   procedure S16 (F : Font; At_Off : Natural; V : out Integer; Ok : in out Boolean) is
+   procedure S16 (F : Font; At_Off : Natural; V : out Integer; Ok : in out Boolean)
+     with Pre  => At_Off <= Max_Reach,
+          Post => V in S16_Value
+                  and then (if Ok then Ok'Old and then At_Off + 1 < Max_Data)
+   is
       U : Natural;
    begin
       U16 (F, At_Off, U, Ok);
       V := (if U >= 32_768 then U - 65_536 else U);
    end S16;
 
-   procedure U32 (F : Font; At_Off : Natural; V : out Unsigned_32; Ok : in out Boolean) is
+   procedure U32 (F : Font; At_Off : Natural; V : out Unsigned_32; Ok : in out Boolean)
+     with Pre  => At_Off <= Max_Reach - 2,
+          Post => (if Ok then Ok'Old and then At_Off + 3 < Max_Data)
+   is
       Hi, Lo : Natural;
    begin
       U16 (F, At_Off, Hi, Ok);
@@ -68,9 +96,14 @@ is
       Loca_Fmt   : Integer;
       Sub_Count  : Natural;
       Best_Score : Integer := -1;
+      V          : Natural;
+      S          : Integer;
    begin
       F := (Data => Data, others => <>);
-      Ok := Data /= null and then Data'Length >= 12;
+      --  A file of Max_Data bytes or more is refused outright; see the
+      --  declaration of Max_Data.
+      Ok := Data /= null and then Data'Length >= 12
+        and then Data'Last < Max_Data;
       if not Ok then
          return;
       end if;
@@ -90,6 +123,7 @@ is
 
       --  Table directory: 16-byte records of tag / checksum / offset / length.
       for I in 0 .. N_Tables - 1 loop
+         pragma Loop_Invariant (Ok);
          declare
             Off, Len : Unsigned_32;
             T        : Table;
@@ -101,8 +135,11 @@ is
             exit when not Ok;
 
             --  Reject a table that does not lie wholly inside the data before
-            --  it is ever indexed.
-            if Natural (Off) + Natural (Len) > Data'Length then
+            --  it is ever indexed.  Compared in the file's own 32-bit type, so
+            --  that neither field can overflow on the way.
+            if Off > Unsigned_32 (Data'Length)
+              or else Len > Unsigned_32 (Data'Length) - Off
+            then
                Ok := False;
                exit;
             end if;
@@ -131,19 +168,29 @@ is
          return;
       end if;
 
+      --  The readers take F itself, so each value is read into a local
+      --  before it is stored in F.
+
       --  head: unitsPerEm at +18, indexToLocFormat at +50.
-      U16 (F, F.Head.Offset + 18, F.Upem, Ok);
+      U16 (F, F.Head.Offset + 18, V, Ok);
+      if Ok and then V = 0 then
+         Ok := False;
+      elsif Ok then
+         F.Upem := V;
+      end if;
       S16 (F, F.Head.Offset + 50, Loca_Fmt, Ok);
       F.Long_Loca := Loca_Fmt = 1;
-      if Ok and then F.Upem = 0 then
-         Ok := False;
-      end if;
 
-      U16 (F, F.Maxp.Offset + 4, F.N_Glyphs, Ok);       --  maxp: numGlyphs at +4
-      S16 (F, F.Hhea.Offset + 4, F.Asc, Ok);            --  hhea: ascender
-      S16 (F, F.Hhea.Offset + 6, F.Desc, Ok);
-      S16 (F, F.Hhea.Offset + 8, F.Gap, Ok);
-      U16 (F, F.Hhea.Offset + 34, F.N_HMetrics, Ok);    --  numberOfHMetrics
+      U16 (F, F.Maxp.Offset + 4, V, Ok);                --  maxp: numGlyphs at +4
+      F.N_Glyphs := V;
+      S16 (F, F.Hhea.Offset + 4, S, Ok);                --  hhea: ascender
+      F.Asc := S;
+      S16 (F, F.Hhea.Offset + 6, S, Ok);
+      F.Desc := S;
+      S16 (F, F.Hhea.Offset + 8, S, Ok);
+      F.Gap := S;
+      U16 (F, F.Hhea.Offset + 34, V, Ok);               --  numberOfHMetrics
+      F.N_HMetrics := V;
       if not Ok then
          return;
       end if;
@@ -171,6 +218,12 @@ is
             end if;
 
             if Score > Best_Score then
+               --  An offset this far out cannot be read; failing here is what
+               --  the read below would do.
+               if Sub_Off >= Max_Data then
+                  Ok := False;
+                  exit;
+               end if;
                U16 (F, F.Cmap.Offset + Natural (Sub_Off), Fmt, Ok);
                exit when not Ok;
                if Fmt = 4 or else Fmt = 12 then
@@ -192,11 +245,13 @@ is
 
    function Glyph_Index (F : Font; Code : Unsigned_32) return Natural is
       Ok : Boolean := True;
-      G  : Natural := 0;
    begin
       if F.Cmap_Fmt = 12 then
          --  Format 12: sorted groups of (startChar, endChar, startGlyph).
          declare
+            --  A group is 12 bytes, so no readable table holds more groups
+            --  than this; a larger count is corrupt.
+            Max_Groups : constant := Max_Data / 12;
             N_Groups : Unsigned_32;
             Lo       : Natural := 0;
             Hi       : Integer;
@@ -205,11 +260,13 @@ is
             Base     : constant Natural := F.Cmap_Sub.Offset + 16;
          begin
             U32 (F, F.Cmap_Sub.Offset + 12, N_Groups, Ok);
-            if not Ok then
+            if not Ok or else N_Groups > Max_Groups then
                return 0;
             end if;
             Hi := Natural (N_Groups) - 1;
             while Lo <= Hi loop
+               pragma Loop_Invariant (Lo <= Max_Groups and then Hi < Max_Groups);
+               pragma Loop_Variant (Decreases => Hi - Lo);
                Mid := Lo + (Hi - Lo) / 2;
                U32 (F, Base + Mid * 12, S, Ok);
                U32 (F, Base + Mid * 12 + 4, E, Ok);
@@ -220,7 +277,15 @@ is
                   Lo := Mid + 1;
                else
                   U32 (F, Base + Mid * 12 + 8, SG, Ok);
-                  return (if Ok then Natural (SG + (Code - S)) else 0);
+                  --  An id past the font's glyphs is as absent as a code
+                  --  point no group covers (format 4 below does the same).
+                  if not Ok
+                    or else SG >= Unsigned_32 (F.N_Glyphs)
+                    or else Code - S >= Unsigned_32 (F.N_Glyphs) - SG
+                  then
+                     return 0;
+                  end if;
+                  return Natural (SG + (Code - S));
                end if;
             end loop;
             return 0;
@@ -237,6 +302,7 @@ is
             C   : constant Natural := Natural (Code);
             E, S, D, RO : Natural;
             Idx : Natural;
+            G   : Natural;
          begin
             U16 (F, F.Cmap_Sub.Offset + 6, Seg_X2, Ok);
             if not Ok or else Seg_X2 = 0 then
@@ -306,6 +372,8 @@ is
    --  Last) is a blank glyph such as a space, which is not an error.
    procedure Glyph_Range
      (F : Font; G : Natural; First, Last : out Natural; Ok : in out Boolean)
+     with Post => (if Ok then Ok'Old and then First <= Last
+                              and then Last <= F.Glyf.Length)
    is
       A, B : Unsigned_32;
       X, Y : Natural;
@@ -319,19 +387,30 @@ is
       if F.Long_Loca then
          U32 (F, F.Loca.Offset + G * 4, A, Ok);
          U32 (F, F.Loca.Offset + G * 4 + 4, B, Ok);
-         First := Natural (A);
-         Last  := Natural (B);
+         --  Checked in the file's 32-bit type, before either end is taken
+         --  as a Natural.
+         if Ok and then (B < A or else B > Unsigned_32 (F.Glyf.Length)) then
+            Ok := False;
+         elsif Ok then
+            First := Natural (A);
+            Last  := Natural (B);
+         end if;
       else
          --  Short loca stores offsets halved.
          U16 (F, F.Loca.Offset + G * 2, X, Ok);
          U16 (F, F.Loca.Offset + G * 2 + 2, Y, Ok);
          First := X * 2;
          Last  := Y * 2;
-      end if;
-      if Ok and then (Last < First or else Last > F.Glyf.Length) then
-         Ok := False;
+         if Ok and then (Last < First or else Last > F.Glyf.Length) then
+            Ok := False;
+         end if;
       end if;
    end Glyph_Range;
+
+   --  One 16-bit span: the reach of a glyph coordinate or of a component
+   --  offset.  Offsets accumulate one span per composite level, which is
+   --  what bounds a decoded point (see Coord).
+   Span : constant := 32_768;
 
    --  Append glyph G's contours to O, offset by (DX, DY) font units.  Depth
    --  bounds composite recursion.
@@ -342,7 +421,12 @@ is
       DY    : Integer;
       Depth : Natural;
       O     : in out Outline;
-      Ok    : in out Boolean);
+      Ok    : in out Boolean)
+     with Pre  => Depth <= Max_Depth + 1
+                  and then DX in -(Depth * Span) .. Depth * Span
+                  and then DY in -(Depth * Span) .. Depth * Span
+                  and then Well_Formed (O),
+          Post => Well_Formed (O);
 
    procedure Append_Simple
      (F     : Font;
@@ -352,9 +436,17 @@ is
       DY    : Integer;
       O     : in out Outline;
       Ok    : in out Boolean)
+     with Pre  => Base <= Max_Base
+                  and then N_Con < Span
+                  and then DX in -(Max_Depth * Span) .. Max_Depth * Span
+                  and then DY in -(Max_Depth * Span) .. Max_Depth * Span
+                  and then Well_Formed (O),
+          Post => Well_Formed (O)
    is
       P0        : constant Natural := O.N_Points;   --  where this glyph's points start
-      N_Pts     : Natural := 0;
+      C0        : constant Natural := O.N_Contours; --  and its contours
+      N_Pts     : Natural;
+      Prev_End  : Integer := -1;   --  the last contour end read, glyph-relative
       Ins_Len   : Natural;
       Off       : Natural;
       Last_Pt   : Natural;
@@ -368,22 +460,41 @@ is
          return;
       end if;
 
-      --  endPtsOfContours: the last one gives the point count.
+      --  endPtsOfContours: the last one gives the point count.  The ends
+      --  must increase and stay within the point bound; a font where they do
+      --  not is corrupt, and would otherwise hand the rasteriser a contour
+      --  spanning points this glyph never decoded.
       for I in 0 .. N_Con - 1 loop
+         pragma Loop_Invariant
+           (Well_Formed (O)
+            and then Prev_End in -1 .. Max_Points - 1 - P0
+            and then (if I > 0 then Prev_End >= 0
+                      and then O.Ends (O.N_Contours + I - 1) = P0 + Prev_End)
+            and then (for all J in 0 .. I - 1 =>
+                        O.Ends (O.N_Contours + J) >= P0
+                        and then O.Ends (O.N_Contours + J) <= P0 + Prev_End
+                        and then (if J > 0 then O.Ends (O.N_Contours + J - 1)
+                                                < O.Ends (O.N_Contours + J))));
          U16 (F, Base + 10 + I * 2, Last_Pt, Ok);
          exit when not Ok;
-         O.Ends (O.N_Contours + I) := P0 + Last_Pt;
-         if I = N_Con - 1 then
-            N_Pts := Last_Pt + 1;
+         if Last_Pt <= Prev_End or else Last_Pt >= Max_Points - P0 then
+            Ok := False;
+            exit;
          end if;
+         O.Ends (O.N_Contours + I) := P0 + Last_Pt;
+         Prev_End := Last_Pt;
       end loop;
       if not Ok then
          return;
       end if;
-      if P0 + N_Pts > Max_Points then
-         Ok := False;
-         return;
-      end if;
+      N_Pts := Prev_End + 1;
+
+      --  What the new contours bring: ends from P0 up to the last point.
+      pragma Assert
+        (for all J in 0 .. N_Con - 1 =>
+           O.Ends (O.N_Contours + J) in P0 .. P0 + N_Pts - 1
+           and then (if J > 0 then O.Ends (O.N_Contours + J - 1)
+                                   < O.Ends (O.N_Contours + J)));
 
       --  Skip the hinting bytecode: this reader does not interpret it.
       U16 (F, Base + 10 + N_Con * 2, Ins_Len, Ok);
@@ -395,6 +506,8 @@ is
       --  Flags, run-length encoded via the REPEAT bit (0x08).
       N := 0;
       while N < N_Pts loop
+         pragma Loop_Invariant (Ok and then Off <= Max_Cursor);
+         pragma Loop_Variant (Increases => N);
          U8 (F, Off, B, Ok);
          Off := Off + 1;
          exit when not Ok;
@@ -406,6 +519,7 @@ is
             exit when not Ok;
             for K in 1 .. Natural (Rep) loop
                exit when N >= N_Pts;
+               pragma Loop_Invariant (N < N_Pts and then N >= N'Loop_Entry);
                Flags (N) := B;
                N := N + 1;
             end loop;
@@ -415,11 +529,23 @@ is
          return;
       end if;
 
+      --  Restated after each pass over the points, which leaves the ends
+      --  alone; the prover needs it carried across.
+      pragma Assert
+        (for all I in C0 .. C0 + N_Con - 1 =>
+           O.Ends (I) in P0 .. P0 + N_Pts - 1
+           and then (if I > C0 then O.Ends (I - 1) < O.Ends (I)));
+
       --  X then Y, each a delta from the previous point.  Bit 1 (0x02) means a
       --  1-byte magnitude whose sign is bit 4 (0x10); otherwise bit 4 set means
-      --  "same as previous" and clear means a signed 2-byte delta.
+      --  "same as previous" and clear means a signed 2-byte delta.  An
+      --  absolute coordinate is a 16-bit FWORD, so deltas that leave that
+      --  range mark a corrupt glyph.
       Prev := 0;
       for I in 0 .. N_Pts - 1 loop
+         pragma Loop_Invariant
+           (Ok and then Off <= Max_Cursor and then Prev in S16_Value
+            and then Well_Formed (O));
          if (Flags (I) and 16#02#) /= 0 then
             U8 (F, Off, B, Ok);
             Off := Off + 1;
@@ -435,6 +561,10 @@ is
          end if;
          exit when not Ok;
          Prev := Prev + V;
+         if Prev not in S16_Value then
+            Ok := False;
+            exit;
+         end if;
          O.Points (P0 + I) :=
            (X => Prev + DX, Y => 0, On => (Flags (I) and 16#01#) /= 0);
       end loop;
@@ -442,8 +572,17 @@ is
          return;
       end if;
 
+      --  Restated after each pass over the points, which leaves the ends
+      --  alone; the prover needs it carried across.
+      pragma Assert
+        (for all I in C0 .. C0 + N_Con - 1 =>
+           O.Ends (I) in P0 .. P0 + N_Pts - 1
+           and then (if I > C0 then O.Ends (I - 1) < O.Ends (I)));
       Prev := 0;
       for I in 0 .. N_Pts - 1 loop
+         pragma Loop_Invariant
+           (Ok and then Off <= Max_Cursor and then Prev in S16_Value
+            and then Well_Formed (O));
          if (Flags (I) and 16#04#) /= 0 then
             U8 (F, Off, B, Ok);
             Off := Off + 1;
@@ -459,14 +598,33 @@ is
          end if;
          exit when not Ok;
          Prev := Prev + V;
+         if Prev not in S16_Value then
+            Ok := False;
+            exit;
+         end if;
          O.Points (P0 + I).Y := Prev + DY;
       end loop;
       if not Ok then
          return;
       end if;
 
+      --  Restated once more, then split old contours from new, for the
+      --  postcondition.
+      pragma Assert
+        (for all I in C0 .. C0 + N_Con - 1 =>
+           O.Ends (I) in P0 .. P0 + N_Pts - 1
+           and then (if I > C0 then O.Ends (I - 1) < O.Ends (I)));
+      pragma Assert (if C0 > 0 then O.Ends (C0 - 1) < P0);
       O.N_Points   := P0 + N_Pts;
       O.N_Contours := O.N_Contours + N_Con;
+      pragma Assert
+        (for all I in 0 .. C0 - 1 =>
+           O.Ends (I) < O.N_Points
+           and then (if I > 0 then O.Ends (I - 1) < O.Ends (I)));
+      pragma Assert
+        (for all I in C0 .. O.N_Contours - 1 =>
+           O.Ends (I) < O.N_Points
+           and then (if I > 0 then O.Ends (I - 1) < O.Ends (I)));
    end Append_Simple;
 
    procedure Append_Composite
@@ -477,6 +635,12 @@ is
       Depth : Natural;
       O     : in out Outline;
       Ok    : in out Boolean)
+     with Pre  => Base <= Max_Base
+                  and then Depth <= Max_Depth
+                  and then DX in -(Depth * Span) .. Depth * Span
+                  and then DY in -(Depth * Span) .. Depth * Span
+                  and then Well_Formed (O),
+          Post => Well_Formed (O)
    is
       Off        : Natural := Base + 10;
       Raw, Sub   : Natural;
@@ -485,6 +649,7 @@ is
       More       : Boolean := True;
    begin
       while More and then Ok loop
+         pragma Loop_Invariant (Off <= Max_Cursor and then Well_Formed (O));
          U16 (F, Off, Raw, Ok);
          Flags := Unsigned_16 (Raw mod 65_536);
          U16 (F, Off + 2, Sub, Ok);

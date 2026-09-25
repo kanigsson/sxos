@@ -15,9 +15,10 @@ package Text_Metrics
 is
    type Table is private;
 
-   procedure Prepare (T : out Table; F : Truetype.Font; Size : Positive);
-
    function Size (T : Table) return Positive;
+
+   procedure Prepare (T : out Table; F : Truetype.Font; Size : Positive)
+     with Post => Text_Metrics.Size (T) = Size;
 
    --  F must be the font T was prepared from.
    function Glyph
