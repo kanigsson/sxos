@@ -76,7 +76,9 @@ private
       Fat_Start     : Unsigned_32 := 0;   --  LBA of the first FAT
       Fat_Size      : Unsigned_32 := 0;   --  blocks per FAT
       Data_Start    : Unsigned_32 := 0;   --  LBA of cluster 2
-      Per_Cluster   : Unsigned_32 := 1;   --  blocks per cluster
+      --  Blocks per cluster: a power of two that fits the boot sector's
+      --  byte, so never 0 and a cluster is at most 64 KB.
+      Per_Cluster   : Unsigned_32 range 1 .. 128 := 1;
       Clusters      : Unsigned_32 := 0;   --  data clusters (2 .. Clusters + 1)
       Root_Cluster  : Unsigned_32 := 2;
       Fat_Cache     : Sector := (others => 0);

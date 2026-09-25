@@ -23,11 +23,9 @@ is
    end Book_Key;
 
    function CRC (R : Image) return Unsigned_32 is
-      Data : Inflate.Byte_Array (1 .. Size - 4) := (others => 0);
+      Data : constant Inflate.Byte_Array (1 .. Size - 4) :=
+        [for I in 1 .. Size - 4 => Inflate.Byte (R (I - 1))];
    begin
-      for I in Data'Range loop
-         Data (I) := Inflate.Byte (R (I - 1));
-      end loop;
       return Unsigned_32 (Inflate.CRC32.Compute (Data));
    end CRC;
 

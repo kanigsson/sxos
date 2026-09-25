@@ -96,7 +96,10 @@ is
          Fat_Sz   : constant Unsigned_32 := U32 (V.Buf, 36);
          Overhead : Unsigned_64;
       begin
-         if SPC = 0 or else (SPC and (SPC - 1)) /= 0 or else Reserved = 0
+         --  A power of two in a byte is at most 128; the bound is spelled
+         --  out because Per_Cluster's range depends on it.
+         if SPC = 0 or else (SPC and (SPC - 1)) /= 0 or else SPC > 128
+           or else Reserved = 0
            or else N_Fats = 0 or else N_Fats > 2 or else U16 (V.Buf, 17) /= 0
          then
             Status := Invalid_FS;
@@ -194,24 +197,36 @@ is
       Count  : out Natural;
       Ok     : out Boolean)
    is
-      Cluster_Bytes : constant Unsigned_32 := V.Per_Cluster * Block_Size;
       Want : Natural;
       Pos  : Unsigned_32 := Offset;
    begin
+      --  Into is only partly filled at the end of the file or on an error;
+      --  clear it so that what the caller gets is always defined.
+      for I in Into'Range loop
+         Into (I) := 0;
+      end loop;
       Count := 0;
       Ok := True;
       if Offset >= F.Size or else Into'Length = 0 then
          return;
       end if;
-      Want := Natural (Unsigned_32'Min (Unsigned_32 (Into'Length), F.Size - Offset));
+      --  Count is a Natural, so a buffer of 2 GB or more is not filled past
+      --  Natural'Last bytes.
+      Want := Natural (Unsigned_32'Min
+                         (Unsigned_32'Min (Unsigned_32 (Into'Length),
+                                           Unsigned_32 (Natural'Last)),
+                          F.Size - Offset));
 
       while Count < Want loop
-         Seek (V, F, Pos / Cluster_Bytes, Ok);
+         pragma Loop_Invariant (Count < Want);
+         --  The block of the file Pos is in, and where that block is within
+         --  its cluster.
+         Seek (V, F, (Pos / Block_Size) / V.Per_Cluster, Ok);
          exit when not Ok;
          declare
-            In_Cluster : constant Unsigned_32 := Pos mod Cluster_Bytes;
-            Blk        : constant Unsigned_32 := In_Cluster / Block_Size;
-            In_Blk     : constant Natural := Natural (In_Cluster mod Block_Size);
+            Blk        : constant Unsigned_32 :=
+              (Pos / Block_Size) mod V.Per_Cluster;
+            In_Blk     : constant Natural := Natural (Pos mod Block_Size);
             LBA        : constant Unsigned_32 := Cluster_LBA (V, F.Cur) + Blk;
             Remaining  : constant Natural := Want - Count;
             Dest       : constant Natural := Into'First + Count;
@@ -220,14 +235,16 @@ is
             if In_Blk = 0 and then Remaining >= Block_Size then
                --  Whole blocks straight into the caller's buffer, up to the
                --  end of this cluster: one multi-block read.
-               N := Block_Size * Natural'Min
-                 (Remaining / Block_Size, Natural (V.Per_Cluster - Blk));
-               Read_Blocks (LBA, Into (Dest .. Dest + N - 1), Ok);
+               N := Natural'Min
+                 (Remaining / Block_Size, Natural (V.Per_Cluster - Blk))
+                 * Block_Size;
+               Read_Blocks (LBA, Into (Dest .. Dest + (N - 1)), Ok);
             else
                Read_Blocks (LBA, V.Buf, Ok);
                N := Natural'Min (Block_Size - In_Blk, Remaining);
                if Ok then
-                  Into (Dest .. Dest + N - 1) := V.Buf (In_Blk .. In_Blk + N - 1);
+                  Into (Dest .. Dest + (N - 1)) :=
+                    V.Buf (In_Blk .. In_Blk + N - 1);
                end if;
             end if;
             exit when not Ok;
@@ -245,19 +262,25 @@ is
       --  Long-name assembly.  Slots arrive last-first; each carries 13 UTF-16
       --  units and the checksum of the short entry they belong to.
       Units    : array (1 .. 260) of Unsigned_32 := (others => 0);
-      Total    : Natural := 0;      --  slots in the current long name
-      Expected : Natural := 0;      --  next slot number we are waiting for
+      --  A long name is at most 20 slots (255 units, 13 per slot).
+      Total    : Natural range 0 .. 20 := 0;  --  slots in the current name
+      Expected : Natural range 0 .. 20 := 0;  --  next slot we are waiting for
       Sum      : Bytes.Byte := 0;
       Offsets  : constant array (1 .. 13) of Natural :=
         (1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30);
 
-      Name : String (1 .. Max_Name);
-      Last : Natural;
+      --  Cleared once: Visit only ever sees Name (1 .. Last), but that is
+      --  more than flow analysis can follow through the appends.
+      Name : String (1 .. Max_Name) := [others => ' '];
+      Last : Natural range 0 .. Max_Name;
       C    : Unsigned_32 := Dir.First;
       Next : Unsigned_32;
-      Stop : Boolean := False;
+      Stop : Boolean;
 
-      function Checksum (I : Natural) return Bytes.Byte is
+      --  I is the offset of a 32-byte directory entry in V.Buf.
+      function Checksum (I : Natural) return Bytes.Byte
+        with Pre => I <= Block_Size - 32
+      is
          S : Bytes.Byte := 0;
       begin
          for K in 0 .. 10 loop
@@ -266,7 +289,9 @@ is
          return S;
       end Checksum;
 
-      procedure Short_Name (I : Natural) is
+      procedure Short_Name (I : Natural)
+        with Pre => I <= Block_Size - 32
+      is
          Flags : constant Bytes.Byte := V.Buf (I + 12);
          procedure Put (B : Bytes.Byte; Lower : Boolean) is
             Code : Natural := Natural (B);
@@ -280,9 +305,11 @@ is
          Ext_Last  : Integer := 10;
       begin
          while Base_Last >= 0 and then V.Buf (I + Base_Last) = 16#20# loop
+            pragma Loop_Invariant (Base_Last <= 7);
             Base_Last := Base_Last - 1;
          end loop;
          while Ext_Last >= 8 and then V.Buf (I + Ext_Last) = 16#20# loop
+            pragma Loop_Invariant (Ext_Last <= 10);
             Ext_Last := Ext_Last - 1;
          end loop;
          for K in 0 .. Base_Last loop
@@ -298,7 +325,7 @@ is
       end Short_Name;
 
       procedure Long_Name is
-         K : Natural := 1;
+         K : Positive := 1;
          U : Unsigned_32;
       begin
          while K <= Total * 13 loop
@@ -415,24 +442,30 @@ is
       Found : out Boolean)
    is
       Cur   : File := Root (V);
-      P     : Natural := Path'First;
-      Q     : Natural;
+      P     : Positive;      --  first character of a component
+      E     : Natural;       --  its last one (P - 1 when it is empty)
       Ok    : Boolean;
    begin
       F := Cur;
       Found := V.Mounted;
-      while Found and then P <= Path'Last loop
-         Q := P;
-         while Q <= Path'Last and then Path (Q) /= '/' loop
-            Q := Q + 1;
+      if Path'Length = 0 then
+         return;
+      end if;
+      P := Path'First;
+      while Found loop
+         pragma Loop_Invariant (P in Path'Range);
+         E := P - 1;
+         while E < Path'Last and then Path (E + 1) /= '/' loop
+            pragma Loop_Invariant (E in P - 1 .. Path'Last - 1);
+            E := E + 1;
          end loop;
-         if Q > P then
+         if E >= P then
             if not Cur.Directory then
                Found := False;
                return;
             end if;
             declare
-               Want : constant String := Path (P .. Q - 1);
+               Want : constant String := Path (P .. E);
                Hit  : Boolean := False;
                Got  : File := Cur;
 
@@ -452,7 +485,9 @@ is
                Cur := Got;
             end;
          end if;
-         P := Q + 1;
+         --  Done when the component ends the path, or only a '/' follows.
+         exit when E >= Path'Last - 1;
+         P := E + 2;
       end loop;
       if Found then
          F := Cur;

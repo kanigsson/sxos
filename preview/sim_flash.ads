@@ -7,8 +7,12 @@ with Bytes;
 --  hit after a number of operations: that operation is left half done
 --  (a random prefix programmed, or a sector of garbage for an erase) and
 --  Power_Cut is raised.
+--
+--  Memory stands for the simulated chip and the power-cut countdown; the
+--  body is not SPARK, but the spec says what each operation touches so that
+--  flow analysis of Store_Log over it is not told flash is stateless.
 package Sim_Flash
-  with SPARK_Mode => On
+  with SPARK_Mode => On, Abstract_State => Memory, Initializes => Memory
 is
    Size        : constant := 32 * 1024;
    Sector_Size : constant := 4096;
@@ -16,16 +20,23 @@ is
    Power_Cut : exception;
 
    procedure Read
-     (Addr : Unsigned_32; Data : out Bytes.Byte_Array; Ok : out Boolean);
+     (Addr : Unsigned_32; Data : out Bytes.Byte_Array; Ok : out Boolean)
+     with Global => (Input => Memory);
    procedure Program
-     (Addr : Unsigned_32; Data : Bytes.Byte_Array; Ok : out Boolean);
-   procedure Erase (Addr : Unsigned_32; Ok : out Boolean);
+     (Addr : Unsigned_32; Data : Bytes.Byte_Array; Ok : out Boolean)
+     with Global => (In_Out => Memory);
+   procedure Erase (Addr : Unsigned_32; Ok : out Boolean)
+     with Global => (In_Out => Memory);
 
    --  Cut the power during the N-th operation from now; 0 disarms.
-   procedure Arm (N : Natural);
+   procedure Arm (N : Natural)
+     with Global => (In_Out => Memory);
 
-   procedure Wipe;   --  all erased
+   procedure Wipe   --  all erased
+     with Global => (In_Out => Memory);
 
-   function Erases (Sector : Natural) return Natural;
-   function Programs return Natural;
+   function Erases (Sector : Natural) return Natural
+     with Global => Memory;
+   function Programs return Natural
+     with Global => Memory;
 end Sim_Flash;

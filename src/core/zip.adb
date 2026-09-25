@@ -4,13 +4,14 @@ is
 
    function U16 (B : Bytes.Byte_Array; I : Natural) return Unsigned_32 is
      (Unsigned_32 (B (I)) or Shift_Left (Unsigned_32 (B (I + 1)), 8))
-     with Pre => I in B'Range and then I + 1 in B'Range;
+     with Pre  => I in B'Range and then I < B'Last,
+          Post => U16'Result <= 16#FFFF#;
 
    function U32 (B : Bytes.Byte_Array; I : Natural) return Unsigned_32 is
      (Unsigned_32 (B (I)) or Shift_Left (Unsigned_32 (B (I + 1)), 8)
       or Shift_Left (Unsigned_32 (B (I + 2)), 16)
       or Shift_Left (Unsigned_32 (B (I + 3)), 24))
-     with Pre => I in B'Range and then I + 3 in B'Range;
+     with Pre => I in B'Range and then B'Last - I >= 3;
 
    End_Signature     : constant Unsigned_32 := 16#0605_4B50#;
    Central_Signature : constant Unsigned_32 := 16#0201_4B50#;
@@ -55,7 +56,7 @@ is
       M     : out Member;
       Found : out Boolean)
    is
-      P          : Natural := Dir'First;
+      P          : Natural;
       Name_Len   : Natural;
       Skip       : Unsigned_32;
       Exact, Folded : Boolean;
@@ -63,15 +64,25 @@ is
    begin
       M := (others => <>);
       Found := False;
+      --  An empty Dir's bounds need not be Naturals.
+      if Dir'Length = 0 then
+         return;
+      end if;
+      P := Dir'First;
       while Dir'Last >= Central_Size - 1
         and then P <= Dir'Last - (Central_Size - 1)
         and then U32 (Dir, P) = Central_Signature
       loop
+         pragma Loop_Invariant (P >= Dir'First);
          Name_Len := Natural (U16 (Dir, P + 28));
          Skip := Central_Size + Unsigned_32 (Name_Len) + U16 (Dir, P + 30)
                  + U16 (Dir, P + 32);
          exit when Unsigned_64 (P) + Unsigned_64 (Skip)
            > Unsigned_64 (Dir'Last) + 1;
+         --  The entry, name included, lies within Dir.
+         pragma Assert (Unsigned_64 (Skip)
+                          >= Central_Size + Unsigned_64 (Name_Len));
+         pragma Assert (P + (Central_Size - 1) + Name_Len <= Dir'Last);
 
          if Name_Len = Name'Length then
             Exact := True;
