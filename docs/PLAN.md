@@ -116,11 +116,10 @@ parser part), M4 and M5 can mostly be developed against the host preview.
 
 ## Status and next steps
 
-M0–M2 are done and on the device (see the table). The device boots into the
-Library, rendered with DejaVu Serif from the card, with a working battery
-gauge. Two things are still open from M2: the user has not yet confirmed the
-TrueType Library visually on the glass (the boot log is clean and the host
-preview of the same code looks right), and every screen change is still a
+M0–M2 are done and confirmed on the glass (see the table): the device boots
+into the Library, rendered with DejaVu Serif from the card, with a working
+battery gauge; the user found the Library's type size good. What remains
+from the early milestones is speed: every screen change is still a
 multi-second full refresh.
 
 **M3 — fast refresh.** Start from the FreeInk SDK (github.com/Free-Ink/
@@ -142,9 +141,8 @@ Useful facts for later milestones:
   `hasHomeKey`) — a natural Back button.
 - **Charging:** the charger's STAT line is GPIO21, active high; `Gauge.Read`
   already reports it.
-- **Open decision:** the font-size setting applies to the reading text only;
-  the Library and status bar use fixed sizes. Proposed to the user, not yet
-  confirmed.
+- **Decided:** the font-size setting applies to the reading text only; the
+  Library and status bar keep their fixed sizes.
 - **Test data:** `docs/test-card.md`.
 
 ## Open questions
