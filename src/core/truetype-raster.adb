@@ -6,7 +6,15 @@ is
    --  bitmap's direction, the opposite of the font's).
    Frac : constant := 256;
 
-   subtype Fix is Integer;
+   --  A point's place in fixed pixel space.  Render refuses an outline point
+   --  outside this range, so every coordinate below is bounded, and so is
+   --  anything computed from a handful of them.
+   Fix_Limit : constant := Max_Reach_Px * Frac;
+   subtype Fix is Integer range -Fix_Limit .. Fix_Limit;
+
+   --  A fixed-point value derived from a few coordinates and the pen, such
+   --  as a crossing relative to the bitmap's left edge.
+   subtype Wide is Integer range -2**24 .. 2**24;
 
    --  Working buffers are package-level (static) rather than local so a deep
    --  glyph cannot blow a small embedded stack.  Render is therefore NOT
@@ -22,21 +30,26 @@ is
    Max_Contour_Pt : constant := 1024;
    Max_Crossings  : constant := 256;
 
+   subtype Direction is Integer range -1 .. 1;
+
    type Edge is record
       X0, Y0, X1, Y1 : Fix := 0;   --  Y0 < Y1 after normalisation
-      Dir            : Integer := 0;   --  +1 if the edge originally ran downward
+      Dir            : Direction := 0;   --  +1 if the edge originally ran downward
    end record;
 
    Edges   : array (0 .. Max_Edges - 1) of Edge;
-   N_Edges : Natural := 0;
+   N_Edges : Natural range 0 .. Max_Edges := 0;
    Peak    : Natural := 0;
 
    function Advance_Px
      (F : Font; G : Natural; Pixel_Size : Positive) return Natural
-   is (Integer ((Long_Long_Integer (Truetype.Advance (F, G))
-                 * Long_Long_Integer (Pixel_Size)
-                 + Long_Long_Integer (F.Upem) / 2)
-                / Long_Long_Integer (F.Upem)));
+   is (Natural
+         (Long_Long_Integer'Min
+            (Long_Long_Integer (Natural'Last),
+             (Long_Long_Integer (Truetype.Advance (F, G))
+              * Long_Long_Integer (Pixel_Size)
+              + Long_Long_Integer (F.Upem) / 2)
+             / Long_Long_Integer (F.Upem))));
 
    function Peak_Edges return Natural is (Peak);
    function Edge_Capacity return Natural is (Max_Edges);
@@ -47,20 +60,33 @@ is
       On   : Boolean := False;
    end record;
    Exp   : array (0 .. Max_Contour_Pt - 1) of XY;
-   N_Exp : Natural := 0;
+   N_Exp : Natural range 0 .. Max_Contour_Pt := 0;
 
-   Cross_X   : array (0 .. Max_Crossings - 1) of Fix;
-   Cross_D   : array (0 .. Max_Crossings - 1) of Integer;
-   N_Cross   : Natural := 0;
+   --  A crossing lies on an edge, so within an edge's own extent of its
+   --  first end.
+   subtype Cross_Fix is Integer range -3 * Fix_Limit .. 3 * Fix_Limit;
 
-   Acc : array (0 .. Max_Size - 1) of Natural;   --  per-pixel coverage accumulator
+   Cross_X   : array (0 .. Max_Crossings - 1) of Cross_Fix;
+   Cross_D   : array (0 .. Max_Crossings - 1) of Direction;
+   N_Cross   : Natural range 0 .. Max_Crossings := 0;
+
+   --  Per-pixel coverage accumulator.  The spans between consecutive sorted
+   --  crossings are disjoint, so one sample row adds at most Frac to a pixel
+   --  and a whole pixel row at most Supersample * Frac.  The bound is what
+   --  keeps the final scaling in range; the accumulation saturates there,
+   --  which by that argument it never reaches.
+   subtype Acc_Value is Natural range 0 .. Max_Supersample * Frac;
+   Acc : array (0 .. Max_Size - 1) of Acc_Value;
 
    -----------------
    -- Small maths --
    -----------------
 
    --  Integer square root (Newton); used only to pick a flattening step count.
-   function Isqrt (N : Natural) return Natural is
+   function Isqrt (N : Natural) return Natural
+     with Pre  => N <= 2**24,
+          Post => Isqrt'Result <= N
+   is
       X, Y : Natural;
    begin
       if N < 2 then
@@ -69,6 +95,8 @@ is
       X := N;
       Y := (X + 1) / 2;
       while Y < X loop
+         pragma Loop_Invariant (X in 1 .. N and then Y in 1 .. N);
+         pragma Loop_Variant (Decreases => X);
          X := Y;
          Y := (X + N / X) / 2;
       end loop;
@@ -77,10 +105,10 @@ is
 
    --  Floor / ceiling division by Frac, correct for negatives (Ada's "/"
    --  truncates toward zero, which would fold the left/top edge inward).
-   function Floor_Px (V : Fix) return Integer
+   function Floor_Px (V : Wide) return Integer
    is (if V >= 0 then V / Frac else -((-V + Frac - 1) / Frac));
 
-   function Ceil_Px (V : Fix) return Integer
+   function Ceil_Px (V : Wide) return Integer
    is (if V >= 0 then (V + Frac - 1) / Frac else -((-V) / Frac));
 
    -------------------
@@ -120,20 +148,49 @@ is
       PX : Fix := X0;
       PY : Fix := Y0;
       QX, QY : Fix;
-      T, U : Integer;
+      T, U : Natural;
+
+      --  B(t) at t = T/N, evaluated in 1/N units to stay in integers.  The
+      --  weights U*U, 2*U*T and T*T sum to N*N, so the result is a convex
+      --  combination of three Fix values and the clamp never bites; it only
+      --  states that bound where the prover can see it.  Computed in 64
+      --  bits, since each weighted term alone may not fit in 32.
+      function Bez (A, C, B : Fix) return Fix is
+        (Fix (Long_Long_Integer'Max
+                (-Fix_Limit,
+                 Long_Long_Integer'Min
+                   (Fix_Limit,
+                    (Long_Long_Integer (U) * Long_Long_Integer (U)
+                       * Long_Long_Integer (A)
+                     + 2 * Long_Long_Integer (U) * Long_Long_Integer (T)
+                       * Long_Long_Integer (C)
+                     + Long_Long_Integer (T) * Long_Long_Integer (T)
+                       * Long_Long_Integer (B))
+                    / Long_Long_Integer (N * N)))))
+      with Pre => U <= 32 and then T <= 32;
    begin
       for I in 1 .. N loop
-         --  B(t) at t = I/N, evaluated in 1/N units to stay in integers.
          T := I;
          U := N - I;
-         QX := (U * U * X0 + 2 * U * T * CX + T * T * X1) / (N * N);
-         QY := (U * U * Y0 + 2 * U * T * CY + T * T * Y1) / (N * N);
+         QX := Bez (X0, CX, X1);
+         QY := Bez (Y0, CY, Y1);
          Add_Edge (PX, PY, QX, QY, Ok);
          exit when not Ok;
          PX := QX;
          PY := QY;
       end loop;
    end Add_Quad;
+
+   --  Row R of a W-wide bitmap of H rows ends within its W * H bytes.  Stated
+   --  apart so the prover sees the multiplication without Render's context.
+   procedure Lemma_Row_Inside (R, W, H : Natural)
+     with Ghost,
+          Pre  => R < H and then W <= Max_Size and then H <= Max_Size,
+          Post => R * W + W <= H * W
+   is
+   begin
+      pragma Assert (H * W - (R + 1) * W = (H - (R + 1)) * W);
+   end Lemma_Row_Inside;
 
    ------------
    -- Render --
@@ -147,7 +204,7 @@ is
       X_Off       : out Integer;
       Y_Off       : out Integer;
       Adv         : out Natural;
-      Cov         : out Coverage_Array;
+      Cov         : in out Coverage_Array;
       Ok          : out Boolean;
       Supersample : Positive := 4;
       Gain        : Positive := 16)
@@ -156,14 +213,15 @@ is
       --  F.Upem: a child package sees its parent's private part.
       Upem : constant Long_Long_Integer := Long_Long_Integer (F.Upem);
 
-      --  Font units -> fixed-point pixel space.  Y is negated here, once: the
-      --  font's y grows up, the bitmap's grows down.
-      function SX (U : Integer) return Fix
-      is (Integer ((Long_Long_Integer (U) * Long_Long_Integer (Pixel_Size)
-                    * Frac) / Upem));
-      function SY (U : Integer) return Fix is (-SX (U));
+      --  Font units -> fixed-point pixel space, before the range check that
+      --  admits the result as a Fix.  A coordinate is 19 bits and the size 31,
+      --  so the product fits comfortably in 64.
+      function SX (U : Coord) return Long_Long_Integer
+      is ((Long_Long_Integer (U) * Long_Long_Integer (Pixel_Size) * Frac)
+          / Upem);
 
       X_Min, Y_Min, X_Max, Y_Max : Fix;
+      WI, HI : Integer;
       SS  : constant Positive := Supersample;
       Full : constant Positive := SS * Frac;   --  accumulator value for full coverage
    begin
@@ -183,6 +241,8 @@ is
          First : Natural := 0;
       begin
          for C in 0 .. O.N_Contours - 1 loop
+            pragma Loop_Invariant
+              (Ok and then First = (if C = 0 then 0 else O.Ends (C - 1) + 1));
             declare
                Last : constant Natural := O.Ends (C);
                N    : constant Integer := Last - First + 1;
@@ -190,18 +250,31 @@ is
                if N >= 2 and then N <= Max_Contour_Pt / 2 then
                   --  Expand the contour, inserting the on-curve midpoint that
                   --  TrueType leaves implicit between two off-curve points.
+                  --  Y is negated here, once: the font's y grows up, the
+                  --  bitmap's grows down.
                   N_Exp := 0;
                   for I in 0 .. N - 1 loop
+                     pragma Loop_Invariant (Ok and then N_Exp in I .. 2 * I);
                      declare
-                        P : constant Point := O.Points (First + I);
-                        Q : constant Point := O.Points (First + (I + 1) mod N);
+                        P  : constant Point := O.Points (First + I);
+                        Q  : constant Point := O.Points (First + (I + 1) mod N);
+                        PX : constant Long_Long_Integer := SX (P.X);
+                        PY : constant Long_Long_Integer := -SX (P.Y);
+                        QX : constant Long_Long_Integer := SX (Q.X);
+                        QY : constant Long_Long_Integer := -SX (Q.Y);
                      begin
-                        Exp (N_Exp) := (SX (P.X), SY (P.Y), P.On);
+                        if abs PX > Fix_Limit or else abs PY > Fix_Limit
+                          or else abs QX > Fix_Limit or else abs QY > Fix_Limit
+                        then
+                           Ok := False;
+                           exit;
+                        end if;
+                        Exp (N_Exp) := (Fix (PX), Fix (PY), P.On);
                         N_Exp := N_Exp + 1;
                         if not P.On and then not Q.On then
                            Exp (N_Exp) :=
-                             ((SX (P.X) + SX (Q.X)) / 2,
-                              (SY (P.Y) + SY (Q.Y)) / 2, True);
+                             ((Fix (PX) + Fix (QX)) / 2,
+                              (Fix (PY) + Fix (QY)) / 2, True);
                            N_Exp := N_Exp + 1;
                         end if;
                      end;
@@ -223,13 +296,15 @@ is
                            Found := True;
                            exit;
                         end if;
+                        pragma Loop_Invariant (not Found);
                      end loop;
 
-                     if Found then
+                     if Ok and then Found then
                         Cur_X := Exp (Start).X;
                         Cur_Y := Exp (Start).Y;
                         I := (Start + 1) mod N_Exp;
                         while Steps < N_Exp and then Ok loop
+                           pragma Loop_Invariant (I < N_Exp);
                            if Exp (I).On then
                               Add_Edge (Cur_X, Cur_Y, Exp (I).X, Exp (I).Y, Ok);
                               Cur_X := Exp (I).X;
@@ -283,19 +358,24 @@ is
 
       X_Off := Floor_Px (X_Min);
       Y_Off := Floor_Px (Y_Min);
-      W     := Ceil_Px (X_Max) - X_Off;
-      H     := Ceil_Px (Y_Max) - Y_Off;
+      WI    := Ceil_Px (X_Max) - X_Off;
+      HI    := Ceil_Px (Y_Max) - Y_Off;
 
-      if W <= 0 or else H <= 0 then
-         W := 0; H := 0;
+      if WI <= 0 or else HI <= 0 then
          Ok := True;
          return;
       end if;
-      if W > Max_Size or else H > Max_Size or else Cov'Length < W * H then
+      --  Cov's bounds are compared rather than its 'Length, which for a
+      --  buffer spanning all of Natural would not fit in Integer.
+      if WI > Max_Size or else HI > Max_Size
+        or else Cov'Last < Cov'First
+        or else Cov'Last - Cov'First < WI * HI - 1
+      then
          Ok := False;
-         W := 0; H := 0;
          return;
       end if;
+      W := WI;
+      H := HI;
 
       ---------------------------------------------------------------------
       --  3. Scan.  Vertically: SS sample rows per pixel row, nonzero winding.
@@ -309,7 +389,7 @@ is
          for S in 0 .. SS - 1 loop
             declare
                --  Centre of this sample row, in fixed pixel space.
-               Y : constant Fix :=
+               Y : constant Integer :=
                  (Y_Off + PY) * Frac + ((2 * S + 1) * Frac) / (2 * SS);
             begin
                --  Crossings of the sample row with every edge.  The half-open
@@ -319,11 +399,19 @@ is
                   if Y >= Edges (I).Y0 and then Y < Edges (I).Y1
                     and then N_Cross < Max_Crossings
                   then
+                     --  0 <= Y - Y0 < Y1 - Y0, so the offset along the edge is
+                     --  within X1 - X0 and the clamp never bites; it only
+                     --  states that bound where the prover can see it.
                      Cross_X (N_Cross) :=
                        Edges (I).X0
-                       + Integer ((Long_Long_Integer (Y - Edges (I).Y0)
+                       + Integer
+                           (Long_Long_Integer'Max
+                              (-2 * Fix_Limit,
+                               Long_Long_Integer'Min
+                                 (2 * Fix_Limit,
+                                  (Long_Long_Integer (Y - Edges (I).Y0)
                                    * Long_Long_Integer (Edges (I).X1 - Edges (I).X0))
-                                  / Long_Long_Integer (Edges (I).Y1 - Edges (I).Y0));
+                                  / Long_Long_Integer (Edges (I).Y1 - Edges (I).Y0))));
                      Cross_D (N_Cross) := Edges (I).Dir;
                      N_Cross := N_Cross + 1;
                   end if;
@@ -332,11 +420,13 @@ is
                --  Insertion sort by x (N_Cross is small -- a few dozen).
                for I in 1 .. N_Cross - 1 loop
                   declare
-                     KX : constant Fix := Cross_X (I);
-                     KD : constant Integer := Cross_D (I);
+                     KX : constant Cross_Fix := Cross_X (I);
+                     KD : constant Direction := Cross_D (I);
                      J  : Integer := I - 1;
                   begin
                      while J >= 0 and then Cross_X (J) > KX loop
+                        pragma Loop_Invariant (J < I);
+                        pragma Loop_Variant (Decreases => J);
                         Cross_X (J + 1) := Cross_X (J);
                         Cross_D (J + 1) := Cross_D (J);
                         J := J - 1;
@@ -352,11 +442,12 @@ is
                   Wind : Integer := 0;
                begin
                   for I in 0 .. N_Cross - 2 loop
+                     pragma Loop_Invariant (Wind in -I .. I);
                      Wind := Wind + Cross_D (I);
                      if Wind /= 0 then
                         declare
-                           XA : constant Fix := Cross_X (I) - X_Off * Frac;
-                           XB : constant Fix := Cross_X (I + 1) - X_Off * Frac;
+                           XA : constant Wide := Cross_X (I) - X_Off * Frac;
+                           XB : constant Wide := Cross_X (I + 1) - X_Off * Frac;
                            P0 : constant Integer :=
                              Integer'Max (0, Floor_Px (XA));
                            P1 : constant Integer :=
@@ -365,13 +456,15 @@ is
                            for PX in P0 .. P1 loop
                               --  Overlap of [XA, XB) with pixel PX's column.
                               declare
-                                 L : constant Fix :=
+                                 L : constant Integer :=
                                    Integer'Max (XA, PX * Frac);
-                                 R : constant Fix :=
+                                 R : constant Integer :=
                                    Integer'Min (XB, (PX + 1) * Frac);
                               begin
                                  if R > L then
-                                    Acc (PX) := Acc (PX) + (R - L);
+                                    Acc (PX) :=
+                                      Integer'Min
+                                        (Acc_Value'Last, Acc (PX) + (R - L));
                                  end if;
                               end;
                            end loop;
@@ -384,12 +477,18 @@ is
 
          --  Accumulator -> the 16 levels the panel and the atlases both use,
          --  with the stem-darkening gain folded in before quantising (so the
-         --  gain does not amplify rounding error).
+         --  gain does not amplify rounding error).  In 64 bits, since Gain is
+         --  not bounded.
+         Lemma_Row_Inside (PY, W, H);
          for PX in 0 .. W - 1 loop
             Cov (Cov'First + PY * W + PX) :=
               Unsigned_8
-                (Integer'Min
-                   (15, (Acc (PX) * 15 * Gain / 16 + Full / 2) / Full));
+                (Long_Long_Integer'Min
+                   (15,
+                    (Long_Long_Integer (Acc (PX)) * 15
+                     * Long_Long_Integer (Gain) / 16
+                     + Long_Long_Integer (Full) / 2)
+                    / Long_Long_Integer (Full)));
          end loop;
       end loop;
 

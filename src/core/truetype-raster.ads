@@ -58,7 +58,9 @@ is
    --             (negative for the usual glyph, which sits above the baseline)
    --    Adv      pen advance in whole pixels
    --  Cov must hold at least W * H bytes; Ok is False if it does not, if the
-   --  glyph exceeds Max_Size, or if the outline could not be decoded.
+   --  glyph exceeds Max_Size, if a point lies further than Max_Reach_Px from
+   --  the pen, or if the outline could not be decoded.  Only the first W * H
+   --  bytes of Cov are written; the rest keep their value.
    --
    --  Gain is stem darkening in sixteenths: coverage is scaled by Gain / 16 and
    --  clamped, so 16 is neutral.  It compensates for the missing grid fit by
@@ -70,6 +72,16 @@ is
    --  that the right value depends on the FACE as well, which that ramp does not
    --  yet model -- the table above matched at gain 24 (26 px) and 16 (44 px) for
    --  the sans but 19 and 18 for the serif.  Not yet re-measured for Latin faces.
+   --
+   --  Supersample is bounded so that the per-pixel accumulator stays small;
+   --  sixteen rows per pixel is four times what the default already buys.
+   Max_Supersample : constant := 16;
+
+   --  How far from the pen, in pixels, an outline point may lie.  Far past
+   --  any glyph that fits Max_Size, and what keeps the fixed-point pixel
+   --  arithmetic inside Integer.
+   Max_Reach_Px : constant := 4096;
+
    procedure Render
      (F           : Font;
       G           : Natural;
@@ -78,13 +90,15 @@ is
       X_Off       : out Integer;
       Y_Off       : out Integer;
       Adv         : out Natural;
-      Cov         : out Coverage_Array;
+      Cov         : in out Coverage_Array;
       Ok          : out Boolean;
       Supersample : Positive := 4;
-      Gain        : Positive := 16);
+      Gain        : Positive := 16)
+     with Pre => Supersample <= Max_Supersample;
 
    --  Pen advance of glyph G at Pixel_Size, in whole pixels.  The same value
    --  Render reports, without rasterising anything -- for measuring a line.
+   --  It saturates at Natural'Last, which only an absurd size reaches.
    function Advance_Px
      (F : Font; G : Natural; Pixel_Size : Positive) return Natural;
 
