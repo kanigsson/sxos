@@ -19,6 +19,36 @@ is
      (X in Set_X - 8 .. Set_X + Set_W + 7
       and then Y in Set_Y - 8 .. Mono_Frame.Height - 1);
 
+   --  The page arrows, either side of the page number, left of Settings.
+   Arrow_W  : constant := 56;
+   Prev_X   : constant := Margin;
+   Next_X   : constant := Set_X - 24 - Arrow_W;
+   Number_L : constant := Prev_X + Arrow_W;
+   Number_R : constant := Next_X;
+
+   function Page_Step_At (X, Y : Integer) return Integer is
+     (if Y not in Set_Y - 8 .. Mono_Frame.Height - 1 then 0
+      elsif X in Prev_X - 8 .. Prev_X + Arrow_W + 7 then -1
+      elsif X in Next_X - 8 .. Next_X + Arrow_W + 7 then 1
+      else 0);
+
+   --  A solid triangle centred in the arrow box at X, pointing left or right.
+   procedure Arrow (Fr : in out Mono_Frame.Frame; X : Integer; Left : Boolean)
+   is
+      Half : constant := 10;
+      CX   : constant Integer := X + Arrow_W / 2;
+      CY   : constant Integer := Set_Y + Set_H / 2;
+      W    : Natural;
+   begin
+      Mono_Frame.Frame_Rect (Fr, X, Set_Y, Arrow_W, Set_H);
+      for Row in -Half .. Half loop
+         W := Half - abs Row;
+         Mono_Frame.Fill_Rect
+           (Fr, CX - Half / 2 + (if Left then Half - W else 0), CY + Row,
+            W + 1, 1);
+      end loop;
+   end Arrow;
+
    function Pitch (F : Truetype.Font) return Positive is
      (Text_Raster.Line_Height_Px (F, Name_Size) + Pad);
 
@@ -31,6 +61,22 @@ is
    is
      (if Selected = 0 then 1
       else ((Selected - 1) / Rows_Per_Page (F)) * Rows_Per_Page (F) + 1);
+
+   function Page_Target
+     (F : Truetype.Font; L : Shelf.List; Selected : Natural; Step : Integer)
+      return Natural
+   is
+      First : constant Positive := Page_First (F, Selected);
+      Rows  : constant Positive := Rows_Per_Page (F);
+   begin
+      if Step > 0 and then First + Rows <= L.Count then
+         return First + Rows;
+      elsif Step < 0 and then First > Rows then
+         return First - Rows;
+      else
+         return Selected;
+      end if;
+   end Page_Target;
 
    function Book_At
      (F : Truetype.Font; L : Shelf.List; Selected : Natural; Y : Integer)
@@ -113,8 +159,10 @@ is
       end loop;
 
       if L.Count > Rows then
+         Arrow (Fr, Prev_X, Left => True);
+         Arrow (Fr, Next_X, Left => False);
          Text_Raster.Draw_Centered
-           (Fr, F, Foot_Size, 0, Mono_Frame.Width,
+           (Fr, F, Foot_Size, Number_L, Number_R,
             Set_Y + (Set_H + Text_Raster.Ascent_Px (F, Foot_Size)
                      - Text_Raster.Descent_Px (F, Foot_Size)) / 2,
             Image ((First - 1) / Rows + 1) & " / "

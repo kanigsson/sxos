@@ -98,6 +98,8 @@ problems are fixed there, not by flashing.
 | Reader | Left, or tap left third | previous page |
 | any | tap top band | overlay: Library · Settings · battery / progress |
 | Library | tap Settings (footer) | Settings |
+| Library | tap ◀ / ▶ (footer) | previous / next page of books |
+| any | Power, or 10 min without input | sleep screen, deep sleep; Power wakes into the open book |
 | Settings | tap ◀ / ▶, − / + (or Left / Right) | reading face, reading size, with a sample paragraph; Done returns to the caller |
 
 ## Milestones
@@ -112,27 +114,53 @@ problems are fixed there, not by flashing.
 | M5 ✓ | Reader: pagination, page turns, overlay, back to Library | layout speed on long chapters |
 | M6 ✓ | `Store`: positions and settings in internal flash | ROM flash calls from the bare runtime (cache/interrupt handling) |
 | M7 ✓ | Settings screen (font face and size), shared by both screens | — |
-| M8 | Polish: sorted and paged Library, power button → deep sleep, idle sleep | wake sources on this board |
+| M8 ✓ | Polish: sorted and paged Library, power button → deep sleep, idle sleep | wake sources on this board |
 
 M3 is independent and can be done whenever the device is at hand. M1, M2 (the
 parser part), M4 and M5 can mostly be developed against the host preview.
 
 ## Status and next steps
 
-M0–M7 are done and confirmed on the device (see the table): the device boots
+M0–M8 are done and confirmed on the device (see the table): the device boots
 into the Library, rendered with DejaVu Serif from the card, with a working
 battery gauge; the user found the Library's type size good. Books open
 into the Reader and page through on the device, and each book reopens
 where it was left, across power cycles. The reading face and size are
-set on a Settings screen.
+set on a Settings screen, and the power button (or 10 minutes idle) puts
+it to sleep and wakes it back into the open book.
 
-**Next: M8 (polish)** — sorted and paged Library, power button → deep
-sleep, idle sleep.
+**Next:** nothing planned beyond M8. Candidates, roughly by value: the GT911
+Home key as Back; a lower-current deep sleep (see below); grayscale (AA)
+text through FreeInk's 4-level path; TOC navigation; bold/italic.
 
-**M7 (Settings)**, confirmed on the device (size changes from the Library
-and from an open book, which re-laid out at its passage in 72 ms). Not yet
-exercised on the device: switching the face (load + free), and settings
-surviving a reboot.
+**M8 (polish)**, sleep and wake confirmed on the device:
+
+- **Library:** already sorted (case-insensitive) and paged; the footer now
+  has ◀ / ▶ page arrows either side of the page number
+  (`Library_View.Page_Step_At` / `Page_Target`).
+- **Deep sleep** (`Power`, device): the power button (GPIO3, active-low,
+  debounced; at boot its state starts as "pressed" if still held from the
+  wake) or 10 minutes without input (`Idle_Limit`) saves the position (and
+  unsaved settings), draws `Sleep_View` with a clean refresh, sends the
+  UC8279 POF + DSLP (`X4_Display.Sleep`), and sleeps with RTC EXT1 wake on
+  GPIO3 low. It waits for the button's release first, or the low level
+  would wake it at once. Pads held through the sleep, as CrossPoint does:
+  GPIO1 rail HIGH, GPIO2 (touch) and GPIO5 (SD) enables HIGH = off, panel
+  RESET (14) HIGH, frontlight (8, 9) LOW. `Power.Initialize` releases the
+  holds and takes GPIO3 back from the RTC mux first thing on every boot.
+- **Wake** is a reset. The open book's key is kept in RTC slow memory
+  (words 0–2: a mark, then the key), which survives deep sleep but not a
+  power cut; after a GPIO wake Main reopens that book at its saved
+  position. Asleep in the Library, it wakes to the Library.
+- The USB console drops during sleep and re-enumerates after the wake,
+  too late for the boot log.
+- **Open:** the HAL's `Enter_Deep_Sleep` is a functional deep sleep with
+  no regulator (dbias) tuning, so the sleep current is probably above
+  what the chip can do; not measured.
+
+**M7 (Settings)**, confirmed on the device: size and face changes from the
+Library and from an open book (re-laid out at its passage in 72 ms), and
+the settings survive a reboot.
 
 - `Settings_View`: face (◀ / ▶ through the regular faces in `/Fonts`),
   size (− / +, 16–48 px in 2 px steps, default 24), a sample paragraph with

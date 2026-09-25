@@ -70,6 +70,7 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
   `preview.sh CARD.img reader out.pgm BOOK [CHAPTER [PAGE [SIZE [menu]]]]`,
   `preview.sh CARD.img settings out.pgm [SIZE]`; `PREVIEW_FACE=<file in
   /Fonts>` sets the reading face for both (default: the interface face).
+  `preview.sh CARD sleep out.pgm [TITLE]` renders the sleep screen.
 - SPARK **legality** (not proof) check of the core — gnatprove from Alire
   (`alr get gnatprove` / the Alire releases dir) with native GNAT on `PATH`:
 
@@ -125,6 +126,10 @@ fragmented chain.
   disassembly of `int_flash__guarded` after touching it. The ROM driver
   thinks the chip is 2 MB; the store is at `0x110000`, and re-flashing does
   not erase it (the flash only covers bootloader, table and app).
+- **Deep sleep** holds pads 1, 2, 5, 8, 9 and 14 (RTC hold) and routes
+  GPIO3 to the RTC mux; the holds survive the wake reset, so anything that
+  drives those pins must come after `Power.Initialize`. Test sleep by
+  pressing Power; a monitor misses the wake's boot log.
 - The CW2017 gauge reads 0 % until the X4 Pro battery profile is loaded;
   `Gauge.Initialize` checks and uploads it. It shares I2C0 with the GT911,
   so `X4_Touch.Initialize` (which sets the bus up) must run first.

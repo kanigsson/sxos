@@ -5,7 +5,8 @@ with Truetype;
 
 --  The Library screen: the status bar, one page of book titles with the
 --  selected one on an inverted bar, and a footer with a page indicator
---  (when the list needs more than one page) and a Settings button.  Row geometry follows the font's metrics, so
+--  (with arrows to turn the page, when the list needs more than one page)
+--  and a Settings button.  Row geometry follows the font's metrics, so
 --  it is computed rather than fixed; Book_At is the matching hit test.
 package Library_View
   with SPARK_Mode => On
@@ -19,6 +20,16 @@ is
    --  or 0 for none.
    function Book_At
      (F : Truetype.Font; L : Shelf.List; Selected : Natural; Y : Integer)
+      return Natural;
+
+   --  -1 / 1 when portrait (X, Y) is on the previous / next page arrow
+   --  (whether or not they are shown), else 0.
+   function Page_Step_At (X, Y : Integer) return Integer;
+
+   --  The first book of the page Step (-1 or 1) away from Selected's, or
+   --  Selected when there is no such page.
+   function Page_Target
+     (F : Truetype.Font; L : Shelf.List; Selected : Natural; Step : Integer)
       return Natural;
 
    --  Whether portrait (X, Y) is on the Settings button.

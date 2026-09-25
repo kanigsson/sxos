@@ -471,4 +471,23 @@ package body X4_Display is
       Command (16#20#);
       Wait_Ready (Timeout_Ms => 15_000);
    end Show;
+
+   procedure Sleep is
+   begin
+      if Controller_Variant = 16#68# then
+         if Powered then
+            Command (16#02#); -- power off (charge pumps), wait for idle
+            delay until Clock + Milliseconds (5);
+            Wait_UC_Idle;
+            Powered := False;
+         end if;
+         Command (16#07#); -- deep sleep, with the check code
+         Data_Byte (16#A5#);
+      else
+         Command (16#10#); -- SSD1677 deep sleep mode 1 (RAM kept)
+         Data_Byte (16#01#);
+      end if;
+      Old_Valid := False;
+      Put_Line ("[x4] panel asleep");
+   end Sleep;
 end X4_Display;

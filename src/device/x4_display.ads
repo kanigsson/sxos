@@ -20,4 +20,8 @@ package X4_Display is
 
    --  Put Frame on the glass.  The SSD1677 path always does a full refresh.
    procedure Show (Frame : Mono_Frame.Frame; Kind : Refresh_Kind := Fast_Update);
+
+   --  Power the panel down and put the controller into deep sleep; the
+   --  image stays on the glass.  Only Initialize (a reset) wakes it.
+   procedure Sleep;
 end X4_Display;

@@ -10,8 +10,11 @@
 --  are kept in internal flash, and a change re-lays out the open book at
 --  its position.  Each book's position is saved to internal flash
 --  (Device_Store) when the book is closed and a few seconds after the last
---  page turn, and a book reopens where it was left.  The first screen is a full refresh,
---  opening a book a clean one, and everything else a fast (DU) update.
+--  page turn, and a book reopens where it was left.  The power button, or ten
+--  minutes without input, puts the reader into deep sleep with a sleep
+--  screen on the glass; the power button wakes it, back into the book that
+--  was open.  The first screen is a full refresh, opening a book a clean
+--  one, and everything else a fast (DU) update.
 with Ada.Real_Time; use Ada.Real_Time;
 with Interfaces; use Interfaces;
 with System.BB.CPU_Primitives.Multiprocessors;
@@ -35,10 +38,12 @@ with Glyph_Cache;
 with Int_Flash;
 with Library_View;
 with Mono_Frame;
+with Power;
 with Reader_View;
 with Reading_Settings;
 with Settings_View;
 with Shelf;
+with Sleep_View;
 with Status_Bar;
 with Store_Record;
 with Truetype;
@@ -95,6 +100,10 @@ procedure Main is
 
    --  Save this long after the last page turn, to spare the flash.
    Save_Delay : constant Time_Span := Seconds (4);
+
+   --  With no input for this long, the reader goes to sleep.
+   Idle_Limit : constant Time_Span := Seconds (10 * 60);
+   Last_Input : Time := Clock;
 
    function Ms_Since (T : Time) return Integer is
      (Integer (To_Duration (Clock - T) * 1000.0));
@@ -419,6 +428,37 @@ procedure Main is
       end if;
    end Turn;
 
+   --  Show the sleep screen, remember the open book (its position in
+   --  flash, which book it was in RTC memory), and deep-sleep until the
+   --  power button is pressed.
+   procedure Go_To_Sleep (Why : String) is
+      use type Reading_Settings.Values;
+      Book_Open : constant Boolean := Card_Reader.Is_Open;
+   begin
+      Put_Line ("[power] going to sleep: " & Why);
+      if Current = Settings and then Prefs /= Before then
+         Save_Settings;
+      end if;
+      if Book_Open then
+         Save_Position;
+         declare
+            K : constant Store_Record.Key := Book_Key (Open_Index);
+         begin
+            Power.Set_Resume (K.A, K.B);
+         end;
+      else
+         Power.Clear_Resume;
+      end if;
+      Sleep_View.Draw
+        (Screen, UI_Font,
+         (if Book_Open then Shelf.Title (Books, Open_Index)
+          else Library_View.Title),
+         Gauge.Read);
+      X4_Display.Show (Screen, X4_Display.Clean);
+      X4_Display.Sleep;
+      Power.Sleep;
+   end Go_To_Sleep;
+
    procedure On_Button (Step : Integer) is
    begin
       case Current is
@@ -443,6 +483,13 @@ procedure Main is
          when Library =>
             if Library_View.Settings_At (X, Y) then
                Open_Settings (Library);
+               return;
+            end if;
+            if Library_View.Page_Step_At (X, Y) /= 0 then
+               Set_Selection
+                 (Library_View.Page_Target
+                    (UI_Font, Books, Selected,
+                     Library_View.Page_Step_At (X, Y)));
                return;
             end if;
             Hit := Library_View.Book_At (UI_Font, Books, Selected, Y);
@@ -481,13 +528,15 @@ procedure Main is
       Pressed : Boolean := False;
       Ticks   : Natural := 0;
    end record;
-   Left, Right : Button_State;
+   Left, Right, Power_Key : Button_State;
 
-   procedure Scan_Button
-     (State : in out Button_State; Pin : ESP32S3.GPIO.Pin_Id; Step : Integer)
+   --  Debounce one button at level Raw (True: pressed); Pressed_Now is set on
+   --  the press edge.
+   procedure Debounce
+     (State : in out Button_State; Raw : Boolean; Pressed_Now : out Boolean)
    is
-      Raw : constant Boolean := not ESP32S3.GPIO.Read (Pin);  --  active-low
    begin
+      Pressed_Now := False;
       if Raw = State.Pressed then
          State.Ticks := 0;
       else
@@ -495,10 +544,21 @@ procedure Main is
          if State.Ticks >= 3 then  --  60 ms of a stable new level
             State.Pressed := Raw;
             State.Ticks := 0;
-            if Raw then
-               On_Button (Step);
-            end if;
+            Pressed_Now := Raw;
          end if;
+      end if;
+   end Debounce;
+
+   procedure Scan_Button
+     (State : in out Button_State; Pin : ESP32S3.GPIO.Pin_Id; Step : Integer)
+   is
+      Raw : constant Boolean := not ESP32S3.GPIO.Read (Pin);  --  active-low
+      Now : Boolean;
+   begin
+      Debounce (State, Raw, Now);
+      if Now then
+         Last_Input := Clock;
+         On_Button (Step);
       end if;
    end Scan_Button;
 
@@ -509,6 +569,8 @@ procedure Main is
    T_Store     : Time;
 
 begin
+   Power.Initialize;
+   Power_Key.Pressed := Power.Button_Down;  --  still held from the wake
    delay until Clock + Milliseconds (200);
    Put_Line ("[sxos] bare-metal Ada Xteink X4 Pro reader");
    --  Display, SD card and touch all share the board peripheral rail, which
@@ -595,13 +657,44 @@ begin
    ESP32S3.GPIO.Configure (Left_Pin, ESP32S3.GPIO.Input, ESP32S3.GPIO.Pull_Up);
    ESP32S3.GPIO.Configure (Right_Pin, ESP32S3.GPIO.Input, ESP32S3.GPIO.Pull_Up);
 
-   Render_Library;
-   Put_Line ("[sxos] library shown; awaiting input");
+   --  After a wake from sleep, go back into the book that was open.
+   declare
+      use type Store_Record.Key;
+      A, B  : Unsigned_32;
+      Found : Boolean;
+   begin
+      Power.Take_Resume (A, B, Found);
+      if Found then
+         for I in 1 .. Books.Count loop
+            if Book_Key (I) = (Store_Record.Position, A, B) then
+               Selected := I;
+               Open_Book (I);
+               exit;
+            end if;
+         end loop;
+      end if;
+   end;
+   if Current = Library then
+      Render_Library;
+      Put_Line ("[sxos] library shown; awaiting input");
+   end if;
+   Last_Input := Clock;
 
    loop
       delay until Clock + Milliseconds (20);
       Scan_Button (Left, Left_Pin, -1);
       Scan_Button (Right, Right_Pin, 1);
+      declare
+         Now : Boolean;
+      begin
+         Debounce (Power_Key, Power.Button_Down, Now);
+         if Now then
+            Go_To_Sleep ("power button");
+         end if;
+      end;
+      if Clock - Last_Input > Idle_Limit then
+         Go_To_Sleep ("idle");
+      end if;
 
       if Unsaved and then Current /= Library and then Clock - Turned > Save_Delay
       then
@@ -614,6 +707,7 @@ begin
       begin
          X4_Touch.Read_Contact (TX, TY, Contact);
          if Contact then
+            Last_Input := Clock;
             On_Tap (TX, TY);
          end if;
       end;
