@@ -200,11 +200,6 @@ is
       Want : Natural;
       Pos  : Unsigned_32 := Offset;
    begin
-      --  Into is only partly filled at the end of the file or on an error;
-      --  clear it so that what the caller gets is always defined.
-      for I in Into'Range loop
-         Into (I) := 0;
-      end loop;
       Count := 0;
       Ok := True;
       if Offset >= F.Size or else Into'Length = 0 then
@@ -219,6 +214,9 @@ is
 
       while Count < Want loop
          pragma Loop_Invariant (Count < Want);
+         pragma Loop_Invariant (Into'First + (Want - 1) <= Into'Last);
+         pragma Loop_Invariant
+           (Into (Into'First .. Into'First + (Count - 1))'Initialized);
          --  The block of the file Pos is in, and where that block is within
          --  its cluster.
          Seek (V, F, (Pos / Block_Size) / V.Per_Cluster, Ok);
@@ -235,9 +233,11 @@ is
             if In_Blk = 0 and then Remaining >= Block_Size then
                --  Whole blocks straight into the caller's buffer, up to the
                --  end of this cluster: one multi-block read.
+               pragma Assert (Blk < V.Per_Cluster);
                N := Natural'Min
                  (Remaining / Block_Size, Natural (V.Per_Cluster - Blk))
                  * Block_Size;
+               pragma Assert (N in 1 .. Remaining);
                Read_Blocks (LBA, Into (Dest .. Dest + (N - 1)), Ok);
             else
                Read_Blocks (LBA, V.Buf, Ok);
