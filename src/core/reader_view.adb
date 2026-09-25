@@ -23,10 +23,15 @@ is
    --  Taps above this line open the menu.
    Menu_Band : constant := Status_Bar.Height + 40;
 
-   function Image (N : Natural) return String is
+   --  N in decimal, without 'Image's leading space.  A Natural's 'Image
+   --  has at most 11 characters; the bound on the slice says so to the
+   --  prover, so that callers can concatenate the result.
+   function Image (N : Natural) return String
+     with Post => Image'Result'First = 2 and then Image'Result'Length <= 10
+   is
       S : constant String := Natural'Image (N);
    begin
-      return S (S'First + 1 .. S'Last);
+      return S (S'First + 1 .. Integer'Min (S'Last, S'First + 10));
    end Image;
 
    --  One line, with the extra width of a justified line spread over its
@@ -40,38 +45,54 @@ is
       Text     : String;
       L        : Page_Layout.Line;
       Baseline : Integer)
-     with Pre => Text'First = 1 and then L.Last <= Text'Last
+     with Pre => Text'First = 1 and then Text'Last < Positive'Last
+                 and then L.Last <= Text'Last
+                 and then Text_Metrics.Size (T) <= Page_Layout.Max_Size
    is
+      use Page_Layout;
+
       Size    : constant Positive := Text_Metrics.Size (T);
       Gain    : constant Positive := Text_Raster.Gain_For (Size);
       Space_W : constant Natural :=
         Text_Metrics.Advance (T, F, Character'Pos (' '));
       Budget  : constant Integer :=
         G.Col_Width - (if L.Indented then G.Indent else 0);
-      Extra   : Natural := 0;
+      Extra   : Natural;
       Share   : Natural := 0;
       Rest    : Natural := 0;
-      X       : Integer := Margin_X + (if L.Indented then G.Indent else 0);
+      X       : Natural := Margin_X + (if L.Indented then G.Indent else 0);
       P       : Positive := L.First;
       C       : UTF8.Code_Point;
       Gl      : Natural;
+      --  The cache's own advance for the glyph it drew.  Unused on
+      --  purpose: the pen follows T's advances, which are what the line was
+      --  measured with, so a line is drawn exactly as wide as it was set.
       Adv     : Natural;
+      pragma Warnings
+        (GNATprove, Off, """Adv"" is set by ""Draw"" but not used*",
+         Reason => "the pen follows the layout's advances, not the cache's");
    begin
       if Justify and then not L.Para_End and then L.Spaces > 0
         and then Budget > L.Width
       then
          Extra := Budget - L.Width;
-         if Extra / L.Spaces <= Max_Stretch * Space_W then
+         --  Extra is at most Max_Px, so a space that wide takes any
+         --  stretch (and the product below cannot overflow).
+         if Space_W >= Max_Px
+           or else Extra / L.Spaces <= Max_Stretch * Space_W
+         then
             Share := Extra / L.Spaces;
             Rest := Extra mod L.Spaces;
          end if;
       end if;
 
       while P <= L.Last loop
+         pragma Loop_Invariant (P >= L.First);
+         pragma Loop_Variant (Increases => P);
          if Text (P) = ' ' then
-            X := X + Space_W + Share;
+            X := Add_Sat (Add_Sat (X, Space_W), Share);
             if Rest > 0 then
-               X := X + 1;
+               X := Add_Sat (X, 1);
                Rest := Rest - 1;
             end if;
             P := P + 1;
@@ -83,7 +104,7 @@ is
                  (Fr, F, Gl, Size, Gain, Text_Raster.Ink_Threshold,
                   X, Baseline, True, Adv);
             end if;
-            X := X + Text_Metrics.Advance (T, F, C);
+            X := Add_Sat (X, Text_Metrics.Advance (T, F, C));
          end if;
       end loop;
 
@@ -95,6 +116,8 @@ is
                X, Baseline, True, Adv);
          end if;
       end if;
+      pragma Warnings
+        (GNATprove, On, """Adv"" is set by ""Draw"" but not used*");
    end Draw_Line;
 
    procedure Draw_Footer
@@ -109,7 +132,7 @@ is
    end Draw_Footer;
 
    procedure Draw_Page
-     (Fr    : in out Mono_Frame.Frame;
+     (Fr    : out Mono_Frame.Frame;
       UI    : Truetype.Font;
       F     : Truetype.Font;
       T     : Text_Metrics.Table;
@@ -124,22 +147,26 @@ is
       --  can never disagree.
       Stop : constant Positive := Page_Layout.Page_End (T, F, G, Text, Start);
       P    : Positive := Start;
-      Y    : Integer := Text_Top;
+      Y    : Natural := Text_Top;
       L    : Page_Layout.Line;
    begin
       Mono_Frame.Clear (Fr);
       Status_Bar.Draw (Fr, UI, Title, Batt);
       while P < Stop loop
          Page_Layout.Break_Line (T, F, G, Text, P, L);
-         Draw_Line (Fr, F, T, G, Text, L, Y + G.Ascent);
-         Y := Y + G.Line_Height + (if L.Para_End then G.Para_Gap else 0);
+         Draw_Line (Fr, F, T, G, Text, L, Page_Layout.Add_Sat (Y, G.Ascent));
+         --  Page_End stops the page before the lines leave the area, but
+         --  that is not visible from here: add saturating.
+         Y := Page_Layout.Add_Sat
+           (Y, G.Line_Height + (if L.Para_End then G.Para_Gap else 0));
          P := L.Next;
+         pragma Loop_Variant (Increases => P);
       end loop;
       Draw_Footer (Fr, UI, Page, Pages);
    end Draw_Page;
 
    procedure Draw_Message
-     (Fr      : in out Mono_Frame.Frame;
+     (Fr      : out Mono_Frame.Frame;
       UI      : Truetype.Font;
       Title   : String;
       Batt    : Status_Bar.Battery;
@@ -160,6 +187,7 @@ is
    procedure Draw_Button
      (Fr : in out Mono_Frame.Frame; UI : Truetype.Font; X : Integer;
       Label : String)
+     with Pre => X in 0 .. Mono_Frame.Width
    is
       Asc  : constant Natural := Text_Raster.Ascent_Px (UI, Menu_Size);
       Desc : constant Natural := Text_Raster.Descent_Px (UI, Menu_Size);

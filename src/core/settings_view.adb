@@ -29,13 +29,23 @@ is
      & "of wisdom, it was the age of foolishness. "
      & "Größe, Fähre, «déjà vu» — Ελληνικά, кириллица.";
 
-   function Image (N : Natural) return String is
+   --  N in decimal, without 'Image's leading space.  A Natural's 'Image
+   --  has at most 11 characters; the bound on the slice says so to the
+   --  prover, so that callers can concatenate the result.
+   function Image (N : Natural) return String
+     with Post => Image'Result'First = 2 and then Image'Result'Length <= 10
+   is
       S : constant String := Natural'Image (N);
    begin
-      return S (S'First + 1 .. S'Last);
+      return S (S'First + 1 .. Integer'Min (S'Last, S'First + 10));
    end Image;
 
-   procedure Box (Fr : in out Mono_Frame.Frame; X, Y, W, H : Integer) is
+   procedure Box (Fr : in out Mono_Frame.Frame; X, Y, W, H : Integer)
+     with Pre => X in 0 .. Mono_Frame.Width
+                 and then Y in 0 .. Mono_Frame.Height
+                 and then W in 2 .. Mono_Frame.Width
+                 and then H in 2 .. Mono_Frame.Height
+   is
    begin
       Mono_Frame.Frame_Rect (Fr, X, Y, W, H);
       Mono_Frame.Frame_Rect (Fr, X + 1, Y + 1, W - 2, H - 2);
@@ -44,6 +54,8 @@ is
    --  A solid triangle in a button at (X, Y), pointing left or right.
    procedure Arrow (Fr : in out Mono_Frame.Frame; X, Y : Integer;
                     Left : Boolean)
+     with Pre => X in 0 .. Mono_Frame.Width
+                 and then Y in 0 .. Mono_Frame.Height
    is
       Half : constant := 14;   --  half height; the width is the same
       CX   : constant Integer := X + Button / 2;
@@ -61,12 +73,18 @@ is
       end loop;
    end Arrow;
 
-   procedure Minus (Fr : in out Mono_Frame.Frame; X, Y : Integer) is
+   procedure Minus (Fr : in out Mono_Frame.Frame; X, Y : Integer)
+     with Pre => X in 0 .. Mono_Frame.Width
+                 and then Y in 0 .. Mono_Frame.Height
+   is
    begin
       Mono_Frame.Fill_Rect (Fr, X + Button / 2 - 14, Y + Button / 2 - 2, 28, 4);
    end Minus;
 
-   procedure Plus (Fr : in out Mono_Frame.Frame; X, Y : Integer) is
+   procedure Plus (Fr : in out Mono_Frame.Frame; X, Y : Integer)
+     with Pre => X in 0 .. Mono_Frame.Width
+                 and then Y in 0 .. Mono_Frame.Height
+   is
    begin
       Minus (Fr, X, Y);
       Mono_Frame.Fill_Rect (Fr, X + Button / 2 - 2, Y + Button / 2 - 14, 4, 28);
@@ -77,6 +95,8 @@ is
    procedure Row_Value
      (Fr : in out Mono_Frame.Frame; F : Truetype.Font; Y : Integer;
       Str : String)
+     with Pre => Y in 0 .. Mono_Frame.Height
+                 and then Str'Last <= Positive'Last - 3
    is
       Left     : constant Integer := Left_X + Button + 8;
       Right    : constant Integer := Right_X - 8;
@@ -104,6 +124,7 @@ is
    --  baseline to baseline) as far as it fits.
    procedure Draw_Sample
      (Fr : in out Mono_Frame.Frame; F : Truetype.Font; Size : Positive)
+     with Pre => Size <= Page_Layout.Max_Size
    is
       Asc   : constant Natural := Text_Raster.Ascent_Px (F, Size);
       Desc  : constant Natural := Text_Raster.Descent_Px (F, Size);
@@ -118,6 +139,8 @@ is
       Next  : Positive;
    begin
       while From <= Sample_Text'Last and then Y + Desc < Sample_Bottom loop
+         pragma Loop_Invariant (Y < Sample_Bottom);
+         pragma Loop_Variant (Increases => From);
          Text_Raster.Wrap_Line
            (F, Size, Sample_Text, From, Max_W, First, Last, Next);
          exit when Last < First;
@@ -130,7 +153,7 @@ is
    end Draw_Sample;
 
    procedure Draw
-     (Fr        : in out Mono_Frame.Frame;
+     (Fr        : out Mono_Frame.Frame;
       UI        : Truetype.Font;
       Sample    : Truetype.Font;
       Face_Name : String;
@@ -171,7 +194,11 @@ is
    end Draw;
 
    function In_Box (X, Y, BX, BY, W, H : Integer) return Boolean is
-     (X in BX .. BX + W - 1 and then Y in BY .. BY + H - 1);
+     (X in BX .. BX + W - 1 and then Y in BY .. BY + H - 1)
+     with Pre => BX in 0 .. Mono_Frame.Width
+                 and then BY in 0 .. Mono_Frame.Height
+                 and then W in 0 .. Mono_Frame.Width
+                 and then H in 0 .. Mono_Frame.Height;
 
    --  Buttons take taps a little outside their frames too.
    Slack : constant := 12;

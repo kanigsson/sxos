@@ -46,7 +46,9 @@ is
 
    --  For the settings screen: the name without ".ttf" and "-Regular".
    function Display_Name (L : List; I : Index) return String
-     with Pre => I <= L.Count;
+     with Pre  => I <= L.Count,
+          Post => Display_Name'Result'First = 1
+                  and then Display_Name'Result'Last <= Max_Name;
 
    --  The face whose file is named Name (ASCII case-insensitive), or 0.
    function Find (L : List; Name : String) return Count_Type;

@@ -14,19 +14,28 @@ is
       Col_Width, Area_Height : Positive) return Geometry
    is
       Size : constant Positive := Text_Metrics.Size (T);
-      Asc  : constant Natural := Text_Raster.Ascent_Px (F, Size);
-      Desc : constant Natural := Text_Raster.Descent_Px (F, Size);
+      --  The face's metrics come from a file on the card: clamp them to
+      --  Max_Px, where a real face never reaches.
+      Asc  : constant Px :=
+        Natural'Min (Max_Px, Text_Raster.Ascent_Px (F, Size));
+      Desc : constant Px :=
+        Natural'Min (Max_Px, Text_Raster.Descent_Px (F, Size));
       --  About 1.35 em from baseline to baseline, or the face's own line
       --  spacing when that is looser.
-      LH   : constant Positive :=
-        Positive'Max (Text_Raster.Line_Height_Px (F, Size),
-                      (Size * 135 + 50) / 100);
+      LH   : constant Positive_Px :=
+        Natural'Min
+          (Max_Px,
+           Positive'Max (Text_Raster.Line_Height_Px (F, Size),
+                         (Size * 135 + 50) / 100));
    begin
       return (Size        => Size,
               Col_Width   => Col_Width,
               Area_Height => Area_Height,
               Line_Height => LH,
-              Ascent      => Asc + (LH - Asc - Desc) / 2,
+              --  The line's spare height is split above and below; a face
+              --  whose descent alone exceeds the line puts the baseline at
+              --  the top.
+              Ascent      => Natural'Max (0, Asc + (LH - Asc - Desc) / 2),
               Indent      => Size * 3 / 2,
               Para_Gap    => LH / 4,
               Hyph        => null);
@@ -58,12 +67,15 @@ is
       Last      : out Natural;
       Width     : out Natural;
       Found     : out Boolean)
-     with Pre => Text'First = 1 and then Text'Last < Positive'Last
-                 and then Run_First <= Run_Last and then Run_Last <= Text'Last
+     with Pre  => Text'First = 1 and then Text'Last < Positive'Last
+                  and then Run_First <= Run_Last
+                  and then Run_Last <= Text'Last,
+          Post => (if Found then Last in Run_First .. Run_Last),
+          Always_Terminates
    is
       Max : constant := Hyphenation.Max_Word;
       Word   : Hyphenation.Code_Array (1 .. Max) := (others => 0);
-      Breaks : Hyphenation.Break_Array (1 .. Max);
+      Breaks : Hyphenation.Break_Array (1 .. Max) := (others => False);
       --  Ends (I): the last byte of letter I; Widths (I): letters 1 .. I.
       Ends   : array (1 .. Max) of Natural := (others => 0);
       Widths : array (0 .. Max) of Natural := (others => 0);
@@ -75,6 +87,12 @@ is
       Width := 0;
       Found := False;
       while P <= Run_Last loop
+         pragma Loop_Invariant (N <= Max);
+         pragma Loop_Invariant (P in Run_First .. Run_Last);
+         pragma Loop_Invariant
+           (for all K in 1 .. N => Ends (K) in Run_First .. P - 1);
+         pragma Loop_Invariant (not Found);
+         pragma Loop_Variant (Increases => P);
          if N = Max then
             return;   --  too long to hyphenate
          end if;
@@ -82,13 +100,16 @@ is
          N := N + 1;
          Word (N) := C;
          Ends (N) := P - 1;
-         Widths (N) := Widths (N - 1) + Text_Metrics.Advance (T, F, C);
+         Widths (N) :=
+           Add_Sat (Widths (N - 1), Text_Metrics.Advance (T, F, C));
       end loop;
       Hyphenation.Hyphenate (H, Word (1 .. N), Breaks (1 .. N));
       for I in reverse 1 .. N - 1 loop
-         if Breaks (I) and then Run_W + Widths (I) + Hyphen_W <= Budget then
+         if Breaks (I)
+           and then Add_Sat (Add_Sat (Run_W, Widths (I)), Hyphen_W) <= Budget
+         then
             Last := Ends (I);
-            Width := Run_W + Widths (I) + Hyphen_W;
+            Width := Add_Sat (Add_Sat (Run_W, Widths (I)), Hyphen_W);
             Found := True;
             return;
          end if;
@@ -114,7 +135,7 @@ is
 
       Q      : Positive := From;
       Q2     : Positive;
-      C      : UTF8.Code_Point := 0;
+      C      : UTF8.Code_Point;
       A      : Natural;
       W      : Natural := 0;
       Spaces : Natural := 0;
@@ -148,6 +169,13 @@ is
             Hyphen   => False);
 
       loop
+         pragma Loop_Invariant (Q in From .. Text'Last + 1);
+         pragma Loop_Invariant (Spaces <= Q - From);
+         pragma Loop_Invariant (Run_First in From .. Text'Last);
+         pragma Loop_Invariant (B_Next in From .. Text'Last + 1);
+         pragma Loop_Invariant (if Have_Break then B_Next > From);
+         pragma Loop_Invariant (B_Last <= Text'Last);
+         pragma Loop_Variant (Increases => Q);
          if Q > Text'Last or else Text (Q) = LF then
             --  The paragraph ends on this line.
             L.Last := Q - 1;
@@ -169,7 +197,7 @@ is
             Q2 := Q + 1;
             B_Next := Q2;
             Spaces := Spaces + 1;
-            W := W + Space_W;
+            W := Add_Sat (W, Space_W);
             In_Run := False;
          else
             Q2 := Q;
@@ -180,18 +208,18 @@ is
                if Q > From and then Text (Q - 1) /= ' '
                  and then Q2 <= Text'Last and then Text (Q2) /= ' '
                  and then Text (Q2) /= LF
-                 and then W + Hyphen_W <= Budget
+                 and then Add_Sat (W, Hyphen_W) <= Budget
                then
                   Have_Break := True;
                   B_Last := Q - 1;
                   B_Next := Q2;
-                  B_Width := W + Hyphen_W;
+                  B_Width := Add_Sat (W, Hyphen_W);
                   B_Spaces := Spaces;
                   B_Hyphen := True;
                end if;
             else
                A := Text_Metrics.Advance (T, F, C);
-               if W + A > Budget and then Q > From then
+               if Add_Sat (W, A) > Budget and then Q > From then
                   exit;
                end if;
                if not Hyphenation.Is_Letter (C) then
@@ -203,7 +231,7 @@ is
                   Run_Spaces := Spaces;
                   Run_Shy := False;
                end if;
-               W := W + A;
+               W := Add_Sat (W, A);
                if Breaks_After (C) and then Q > From
                  and then Text (Q - 1) /= ' '
                  and then Q2 <= Text'Last and then Text (Q2) /= ' '
@@ -239,6 +267,9 @@ is
          begin
             if Hyphenation.Is_Letter (C) then
                while P <= Text'Last loop
+                  pragma Loop_Invariant (P in Q .. Text'Last);
+                  pragma Loop_Invariant (Run_Last in Q - 1 .. P - 1);
+                  pragma Loop_Variant (Increases => P);
                   P2 := P;
                   UTF8.Next_Code (Text, P2, C2);
                   if C2 = Soft_Hyphen then
@@ -281,6 +312,9 @@ is
 
       --  A break at a space starts the next line after the space(s).
       while L.Next <= Text'Last and then Text (L.Next) = ' ' loop
+         pragma Loop_Invariant (L.Next > From and then L.Last <= Text'Last);
+         pragma Loop_Invariant (L.First = From);
+         pragma Loop_Variant (Increases => L.Next);
          L.Next := L.Next + 1;
       end loop;
    end Break_Line;
@@ -297,6 +331,9 @@ is
       L : Line;
    begin
       loop
+         pragma Loop_Invariant (P in Start .. Text'Last);
+         pragma Loop_Invariant (Y <= G.Area_Height);
+         pragma Loop_Variant (Increases => P);
          Break_Line (T, F, G, Text, P, L);
          P := L.Next;
          Y := Y + G.Line_Height + (if L.Para_End then G.Para_Gap else 0);
@@ -322,6 +359,8 @@ is
       Count := 0;
       Complete := True;
       while P <= Text'Last loop
+         pragma Loop_Invariant (Count <= Starts'Last);
+         pragma Loop_Variant (Increases => P);
          if Count = Starts'Last then
             Complete := False;
             return;
@@ -342,6 +381,8 @@ is
    begin
       --  The last page whose start is at or before Offset.
       while Lo < Hi loop
+         pragma Loop_Invariant (Lo <= Hi and then Hi <= Count);
+         pragma Loop_Variant (Decreases => Hi - Lo);
          Mid := Lo + (Hi - Lo + 1) / 2;
          if Starts (Mid) <= Offset then
             Lo := Mid;

@@ -38,7 +38,9 @@ is
 
    --  Name without its extension, for display.
    function Title (L : List; I : Index) return String
-     with Pre => I <= L.Count;
+     with Pre  => I <= L.Count,
+          Post => Title'Result'First = 1
+                  and then Title'Result'Last <= Max_Name;
 
    --  Case-insensitive (ASCII letters) byte order.
    procedure Sort (L : in out List);

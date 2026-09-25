@@ -30,7 +30,7 @@ is
    --  Draw the page of Text starting at Start.  Page and Pages number it
    --  within the chapter.
    procedure Draw_Page
-     (Fr    : in out Mono_Frame.Frame;
+     (Fr    : out Mono_Frame.Frame;
       UI    : Truetype.Font;
       F     : Truetype.Font;
       T     : Text_Metrics.Table;
@@ -41,15 +41,18 @@ is
       Batt  : Status_Bar.Battery;
       Page, Pages : Natural)
      with Pre => Text'First = 1 and then Text'Last < Positive'Last
-                 and then Start <= Text'Last;
+                 and then Start <= Text'Last
+                 and then Text_Metrics.Size (T) <= Page_Layout.Max_Size
+                 and then Title'Last <= Positive'Last - 3;
 
    --  A page with only Message on it (a chapter that could not be read).
    procedure Draw_Message
-     (Fr      : in out Mono_Frame.Frame;
+     (Fr      : out Mono_Frame.Frame;
       UI      : Truetype.Font;
       Title   : String;
       Batt    : Status_Bar.Battery;
-      Message : String);
+      Message : String)
+     with Pre => Title'Last <= Positive'Last - 3;
 
    type Zone is (Menu, Back, Forward);
 

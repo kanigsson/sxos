@@ -38,7 +38,7 @@ is
    --  Selected = 0 highlights nothing.  With an empty list, Message is
    --  shown instead (e.g. why the card could not be read).
    procedure Draw
-     (Fr       : in out Mono_Frame.Frame;
+     (Fr       : out Mono_Frame.Frame;
       F        : Truetype.Font;
       L        : Shelf.List;
       Selected : Natural;

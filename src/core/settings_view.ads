@@ -1,4 +1,5 @@
 with Mono_Frame;
+with Page_Layout;
 with Status_Bar;
 with Truetype;
 
@@ -12,12 +13,14 @@ is
    Title : constant String := "Settings";
 
    procedure Draw
-     (Fr        : in out Mono_Frame.Frame;
+     (Fr        : out Mono_Frame.Frame;
       UI        : Truetype.Font;
       Sample    : Truetype.Font;
       Face_Name : String;
       Size      : Positive;
-      Batt      : Status_Bar.Battery);
+      Batt      : Status_Bar.Battery)
+     with Pre => Size <= Page_Layout.Max_Size
+                 and then Face_Name'Last <= Positive'Last - 3;
 
    type Action is (None, Prev_Face, Next_Face, Smaller, Larger, Done);
 

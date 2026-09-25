@@ -34,6 +34,7 @@ is
 
    --  A solid triangle centred in the arrow box at X, pointing left or right.
    procedure Arrow (Fr : in out Mono_Frame.Frame; X : Integer; Left : Boolean)
+     with Pre => X in 0 .. Mono_Frame.Width
    is
       Half : constant := 10;
       CX   : constant Integer := X + Arrow_W / 2;
@@ -69,7 +70,7 @@ is
       First : constant Positive := Page_First (F, Selected);
       Rows  : constant Positive := Rows_Per_Page (F);
    begin
-      if Step > 0 and then First + Rows <= L.Count then
+      if Step > 0 and then First <= L.Count - Rows then
          return First + Rows;
       elsif Step < 0 and then First > Rows then
          return First - Rows;
@@ -82,26 +83,35 @@ is
      (F : Truetype.Font; L : Shelf.List; Selected : Natural; Y : Integer)
       return Natural
    is
-      Off : constant Integer := Y - Top;
-      Row : Natural;
-      I   : Natural;
+      Off   : Natural;
+      Row   : Natural;
+      First : Positive;
    begin
-      if Off < 0 or else Off >= Rows_Per_Page (F) * Pitch (F) then
+      if Y < Top then
+         return 0;
+      end if;
+      Off := Y - Top;
+      if Off >= Rows_Per_Page (F) * Pitch (F) then
          return 0;
       end if;
       Row := Off / Pitch (F);
-      I := Page_First (F, Selected) + Row;
-      return (if I <= L.Count then I else 0);
+      First := Page_First (F, Selected);
+      return (if First <= L.Count - Row then First + Row else 0);
    end Book_At;
 
-   function Image (N : Natural) return String is
+   --  N in decimal, without 'Image's leading space.  A Natural's 'Image
+   --  has at most 11 characters; the bound on the slice says so to the
+   --  prover, so that callers can concatenate the result.
+   function Image (N : Natural) return String
+     with Post => Image'Result'First = 2 and then Image'Result'Length <= 10
+   is
       S : constant String := Natural'Image (N);
    begin
-      return S (S'First + 1 .. S'Last);
+      return S (S'First + 1 .. Integer'Min (S'Last, S'First + 10));
    end Image;
 
    procedure Draw
-     (Fr       : in out Mono_Frame.Frame;
+     (Fr       : out Mono_Frame.Frame;
       F        : Truetype.Font;
       L        : Shelf.List;
       Selected : Natural;
@@ -115,6 +125,9 @@ is
       Desc  : constant Natural := Text_Raster.Descent_Px (F, Name_Size);
       Max_W : constant := Mono_Frame.Width - 2 * Margin;
       Ellipsis : constant String := "...";
+      --  The page's last book (First + Rows - 1, or the list's last).
+      Last  : constant Natural :=
+        (if L.Count - First < Rows then L.Count else First + Rows - 1);
    begin
       Mono_Frame.Clear (Fr);
       Status_Bar.Draw (Fr, F, Title, Batt);
@@ -133,7 +146,7 @@ is
          return;
       end if;
 
-      for I in First .. Natural'Min (First + Rows - 1, L.Count) loop
+      for I in First .. Last loop
          declare
             Y        : constant Integer := Top + (I - First) * P;
             Baseline : constant Integer := Y + (P + Asc - Desc) / 2;
@@ -150,7 +163,8 @@ is
             else
                Cut := Text_Raster.Fit
                  (F, Name_Size, T,
-                  Max_W - Text_Raster.Width (F, Name_Size, Ellipsis));
+                  Natural'Max
+                    (0, Max_W - Text_Raster.Width (F, Name_Size, Ellipsis)));
                Text_Raster.Draw_Text
                  (Fr, F, Name_Size, Margin, Baseline,
                   T (T'First .. Cut) & Ellipsis, Black => not Sel);

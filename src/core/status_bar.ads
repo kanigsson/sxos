@@ -23,11 +23,14 @@ is
      (Fr    : in out Mono_Frame.Frame;
       F     : Truetype.Font;
       Title : String;
-      Batt  : Battery);
+      Batt  : Battery)
+     with Pre => Title'Last <= Positive'Last - 3;
 
    --  The battery glyph alone, right-aligned at Right with its vertical
    --  centre at Mid.  Drawn with rectangles, so it needs no font.
    procedure Draw_Battery
-     (Fr : in out Mono_Frame.Frame; Right, Mid : Integer; Batt : Battery);
+     (Fr : in out Mono_Frame.Frame; Right, Mid : Integer; Batt : Battery)
+     with Pre => Right in 0 .. Mono_Frame.Width
+                 and then Mid in 0 .. Mono_Frame.Height;
 
 end Status_Bar;

@@ -33,6 +33,7 @@ is
          return False;
       end if;
       for K in File_Name'First .. File_Name'Last - 4 loop
+         pragma Loop_Invariant (Dash = 0 or else Dash in File_Name'First .. K);
          if File_Name (K) = '-' then
             Dash := K;
          end if;
@@ -51,6 +52,8 @@ is
                L : Natural := 7;
             begin
                while L > 0 and then W (L) = ' ' loop
+                  pragma Loop_Invariant (L <= 7);
+                  pragma Loop_Variant (Decreases => L);
                   L := L - 1;
                end loop;
                if Contains (Style, W (1 .. L)) then
@@ -99,6 +102,8 @@ is
             J    : Natural := I - 1;
          begin
             while J >= 1 and then Less (Item, L.Faces (J)) loop
+               pragma Loop_Invariant (J < I);
+               pragma Loop_Variant (Decreases => J);
                L.Faces (J + 1) := L.Faces (J);
                J := J - 1;
             end loop;
@@ -112,7 +117,8 @@ is
 
    function Display_Name (L : List; I : Index) return String is
       N    : constant String := File_Name (L, I);
-      Last : Natural := N'Last - 4;              --  drop ".ttf"
+      --  Drop ".ttf" (only names that end in it are added).
+      Last : Natural := (if N'Length > 4 then N'Last - 4 else N'Last);
       Reg  : constant String := "-regular";
    begin
       if Last - N'First + 1 > Reg'Length

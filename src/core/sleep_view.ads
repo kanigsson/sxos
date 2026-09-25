@@ -9,8 +9,9 @@ package Sleep_View
   with SPARK_Mode => On
 is
    procedure Draw
-     (Fr    : in out Mono_Frame.Frame;
+     (Fr    : out Mono_Frame.Frame;
       UI    : Truetype.Font;
       Title : String;
-      Batt  : Status_Bar.Battery);
+      Batt  : Status_Bar.Battery)
+     with Pre => Title'Last <= Positive'Last - 3;
 end Sleep_View;
