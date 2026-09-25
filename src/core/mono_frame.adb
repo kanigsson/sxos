@@ -38,11 +38,13 @@ is
       X0 : constant Integer := Integer'Max (X, 0);
       Y0 : constant Integer := Integer'Max (Y, 0);
       X1 : constant Integer :=
-        (if W > 0 and then X < Width then Integer'Min (X + W - 1, Width - 1)
-         else -1);
+        (if W <= 0 or else X >= Width then -1
+         elsif X >= 0 and then W - 1 > Width - 1 - X then Width - 1
+         else Integer'Min (X + W - 1, Width - 1));
       Y1 : constant Integer :=
-        (if H > 0 and then Y < Height then Integer'Min (Y + H - 1, Height - 1)
-         else -1);
+        (if H <= 0 or else Y >= Height then -1
+         elsif Y >= 0 and then H - 1 > Height - 1 - Y then Height - 1
+         else Integer'Min (Y + H - 1, Height - 1));
    begin
       for PX in X0 .. X1 loop
          for PY in Y0 .. Y1 loop
@@ -56,9 +58,15 @@ is
    begin
       if W > 0 and then H > 0 then
          Fill_Rect (F, X, Y, W, 1, Black);
-         Fill_Rect (F, X, Y + H - 1, W, 1, Black);
+         --  The far edges are skipped when they lie beyond the frame, which
+         --  also keeps Y + H - 1 and X + W - 1 in range.
+         if Y < Height - H + 1 then
+            Fill_Rect (F, X, Y + H - 1, W, 1, Black);
+         end if;
          Fill_Rect (F, X, Y, 1, H, Black);
-         Fill_Rect (F, X + W - 1, Y, 1, H, Black);
+         if X < Width - W + 1 then
+            Fill_Rect (F, X + W - 1, Y, 1, H, Black);
+         end if;
       end if;
    end Frame_Rect;
 

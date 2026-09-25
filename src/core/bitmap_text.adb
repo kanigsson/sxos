@@ -14,6 +14,11 @@ is
    is
       Pen : Integer := X;
    begin
+      --  Nothing to draw below the frame; returning here also keeps
+      --  Y + Row * Scale in range.
+      if Y >= Mono_Frame.Height then
+         return;
+      end if;
       for C of Text loop
          exit when Pen >= Mono_Frame.Width;
          for Col in 0 .. 4 loop

@@ -9,7 +9,7 @@ is
    is
       --  A continuation byte is 10xxxxxx; its payload is the low 6 bits.
       function Is_Cont (I : Positive) return Boolean
-      is (I <= Str'Last and then Character'Pos (Str (I)) / 64 = 2);
+      is (I in Str'Range and then Character'Pos (Str (I)) / 64 = 2);
 
       function Payload (I : Positive) return Code_Point
       is (Code_Point (Character'Pos (Str (I)) mod 64))
@@ -40,7 +40,7 @@ is
       end if;
 
       for K in 1 .. N loop
-         if not Is_Cont (P + K) then
+         if P > Str'Last - K or else not Is_Cont (P + K) then
             Code := Replacement;
             P := P + 1;
             return;

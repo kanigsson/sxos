@@ -105,6 +105,6 @@ is
       '~' => (16#08#, 16#04#, 16#08#, 16#10#, 16#08#));
 
    function Column (C : Character; X : Natural) return Byte is
-     (if C in Font'Range and then X in 0 .. 4 then Font (C) (X)
-      else Font ('?') (X));
+     (if C in Font'Range then Font (C) (X) else Font ('?') (X))
+   with Pre => X in Glyph'Range;
 end X4_Font;

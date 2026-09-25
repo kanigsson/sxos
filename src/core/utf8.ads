@@ -21,7 +21,8 @@ is
      (Str  : String;
       P    : in out Positive;
       Code : out Code_Point)
-     with Pre => P in Str'Range;
+     with Pre  => P in Str'Range and then Str'Last < Positive'Last,
+          Post => P in P'Old + 1 .. Str'Last + 1 and then P - P'Old <= 4;
 
    --  Bytes Append needs for Code (1 .. 4; a surrogate or out-of-range
    --  value is encoded as Replacement).
@@ -38,6 +39,7 @@ is
      (Buf  : in out String;
       Last : in out Natural;
       Code : Code_Point)
-     with Pre => Last in Buf'First - 1 .. Buf'Last;
+     with Pre  => Last in Buf'First - 1 .. Buf'Last,
+          Post => Last in Last'Old .. Buf'Last and then Last - Last'Old <= 4;
 
 end UTF8;
