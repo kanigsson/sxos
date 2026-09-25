@@ -109,7 +109,7 @@ problems are fixed there, not by flashing.
 | M3 ✓ | **UC8279 fast/partial refresh** for page turns; full refresh every N turns | **highest — register/waveform sequence must be taken from FreeInk/CrossPoint and confirmed on the device** |
 | M4 ✓ | Book sources: TXT stream; EPUB via ZIP directory + Inflate + OPF spine + XHTML → text | Inflate is the largest new component |
 | M5 ✓ | Reader: pagination, page turns, overlay, back to Library | layout speed on long chapters |
-| M6 | `Store`: positions and settings in internal flash | ROM flash calls from the bare runtime (cache/interrupt handling) |
+| M6 ✓ | `Store`: positions and settings in internal flash | ROM flash calls from the bare runtime (cache/interrupt handling) |
 | M7 | Settings screen (font face and size), shared by both screens | — |
 | M8 | Polish: sorted and paged Library, power button → deep sleep, idle sleep | wake sources on this board |
 
@@ -118,10 +118,42 @@ parser part), M4 and M5 can mostly be developed against the host preview.
 
 ## Status and next steps
 
-M0–M5 are done and confirmed on the device (see the table): the device boots
+M0–M6 are done and confirmed on the device (see the table): the device boots
 into the Library, rendered with DejaVu Serif from the card, with a working
 battery gauge; the user found the Library's type size good. Books open
-into the Reader and page through on the device.
+into the Reader and page through on the device, and each book reopens
+where it was left, across power cycles.
+
+**M6 (Store)**, confirmed on the device (positions saved, device rebooted,
+both books reopened on the saved pages):
+
+- `Int_Flash` (device) reads, programs and erases the internal flash
+  through the mask-ROM driver (`esp_rom_spiflash_*`). Each operation runs in
+  one IRAM routine: interrupts masked on core 0, **core 1 stalled in
+  hardware** (RTC_CNTL SW_STALL_APPCPU, as ESP-IDF does on restart; core 1
+  idles in the runtime's scheduler, whose code runs from flash), both
+  caches suspended (then waiting for the cache FSMs to go idle, as IDF's ROM
+  patches do). PSRAM is unreachable in that window too, so data goes through
+  a 1 KB bounce buffer in DRAM. The routine is checked by disassembly: its
+  literal pool is in IRAM and every call goes to ROM.
+- The ROM driver's chip size is 2 MB (the bare bootloader never sets it),
+  so the store lives below that: **32 KB at `0x110000`**, right after the
+  1 MB app slot. `Int_Flash` refuses anything below `0x110000` or above
+  2 MB.
+- `Store_Log` (SPARK, generic over read/program/erase) keeps 32-byte
+  CRC-checked records (`Store_Record`) in two 16 KB blocks: append to the
+  active one; when full, write the live set to the other block and program
+  its header (generation + 1) last. A torn record fails its CRC and is
+  skipped. The live set is also a RAM table of 400 entries, least recently
+  written position forgotten first (settings never).
+- Keys: a book is (FNV-1a of its file name, its size); the payload is
+  (chapter, page-start offset). A `Settings_Key` exists for M7.
+- `Main` saves the position 4 s after the last page turn and when a book
+  is closed; an unchanged position writes nothing. A save takes < 1 ms,
+  mounting (16 KB read) under 1 ms, the first-boot format ~100 ms.
+- `preview/obj/store_check` runs the store over a simulated NOR flash with
+  ~2900 random power cuts (half-programmed records, half-erased sectors);
+  it catches a header-first compaction, the one ordering bug that matters.
 
 **M5 (Reader)**, confirmed on the device:
 
@@ -189,10 +221,13 @@ only the test books:
   `preview/obj/book_check IMAGE` loads every chapter of every book in an
   image, and its text matched an independent Python extraction.
 
-**Next: M6 (Store)** — persist the per-book positions (`Card_Reader.Where`,
-today kept in `Main`'s `Positions` array) and settings in internal flash,
-keyed by file name and size. Save on leaving a book and after a short idle
-delay following a page turn, not on every turn.
+**Next: M7 (Settings)** — one screen, reachable from the Library and from
+the Reader's menu: reading font face (the regular faces in `/Fonts`) and
+size (the user wants a bit bigger than today's 24 px), with a sample line.
+Persist them under `Store_Record.Settings_Key`; a size or face change
+re-lays out the open chapter and keeps the position (`Reader.Open` at
+`Where` is enough). Store the face by file name hash so adding fonts does
+not shift it.
 
 **M3 (fast refresh)** is ported from the FreeInk SDK's X4 Pro UC8279 driver
 (github.com/Free-Ink/freeink-sdk, MIT,

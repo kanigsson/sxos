@@ -100,7 +100,8 @@ directories, or read a file back whole and in odd-sized chunks),
 `preview/obj/book_check IMAGE [BOOK OUT.txt]` opens every book and loads
 every chapter (or dumps one book's text; `--layout [SIZE]` also times
 pagination), `preview/obj/reader_check IMAGE [SIZE]` turns through every book
-to the end and back and checks the Reader's navigation, and
+to the end and back and checks the Reader's navigation,
+`preview/obj/store_check` runs `Store_Log` through simulated power cuts, and
 `preview/preview.sh CARD.img library out.pgm` renders through the same
 `Fat32`/`Card_Scan`/`Font_Loader` chain the firmware uses. Make an image with
 `mkfs.fat -C -F 32 -S 512 -s 8 card.img 65536` and fill it with any FAT tool
@@ -116,6 +117,12 @@ fragmented chain.
   `Clean` only for a deliberate clean screen (e.g. opening a book).
 - The SD card is **read-only** by design; persistent state goes to internal
   flash (see `docs/PLAN.md`).
+- **Internal flash writes** (`Int_Flash`): anything that runs while the
+  caches are suspended must be in IRAM/DRAM/ROM — no `case` (jump tables
+  go to flash `.rodata`), no run-time checks, no PSRAM buffers. Check the
+  disassembly of `int_flash__guarded` after touching it. The ROM driver
+  thinks the chip is 2 MB; the store is at `0x110000`, and re-flashing does
+  not erase it (the flash only covers bootloader, table and app).
 - The CW2017 gauge reads 0 % until the X4 Pro battery profile is loaded;
   `Gauge.Initialize` checks and uploads it. It shares I2C0 with the GT911,
   so `X4_Touch.Initialize` (which sets the bus up) must run first.

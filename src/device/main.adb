@@ -5,9 +5,10 @@
 --  tap on the selected one opens it.  Reader: Right or a tap on the right
 --  two thirds turns forward, Left or a tap on the left third back; a tap on
 --  the top band opens the menu over the page, whose Library button closes
---  the book.  Positions are remembered per book until power-off (persisting
---  them is M6).  The first screen is a full refresh, opening a book a clean
---  one, and everything else a fast (DU) update.
+--  the book.  Each book's position is saved to internal flash (Device_Store)
+--  when the book is closed and a few seconds after the last page turn, and
+--  a book reopens where it was left.  The first screen is a full refresh,
+--  opening a book a clean one, and everything else a fast (DU) update.
 with Ada.Real_Time; use Ada.Real_Time;
 with Interfaces; use Interfaces;
 with System.BB.CPU_Primitives.Multiprocessors;
@@ -22,14 +23,17 @@ with Card;
 with Card_Books;
 with Card_Library;
 with Card_Reader;
+with Device_Store;
 with Font_Catalog;
 with Font_Loader;
 with Gauge;
+with Int_Flash;
 with Library_View;
 with Mono_Frame;
 with Reader_View;
 with Shelf;
 with Status_Bar;
+with Store_Record;
 with Truetype;
 with X4_Display;
 with X4_Touch;
@@ -60,9 +64,14 @@ procedure Main is
    type Mode is (Library, Reading, Menu);
    Current : Mode := Library;
 
-   --  The open book, and where each book was left (in RAM until M6).
+   --  The open book, and whether its position has changed since it was
+   --  last saved (then Turned is the time of the last page turn).
    Open_Index : Natural := 0;
-   Positions  : array (Shelf.Index) of Card_Reader.Position;
+   Unsaved    : Boolean := False;
+   Turned     : Time := Time_First;
+
+   --  Save this long after the last page turn, to spare the flash.
+   Save_Delay : constant Time_Span := Seconds (4);
 
    function Ms_Since (T : Time) return Integer is
      (Integer (To_Duration (Clock - T) * 1000.0));
@@ -131,13 +140,48 @@ procedure Main is
       end if;
    end Set_Selection;
 
+   function Book_Key (I : Shelf.Index) return Store_Record.Key is
+     (Store_Record.Book_Key (Shelf.Name (Books, I), Books.Books (I).Size));
+
+   procedure Save_Position is
+      T0  : constant Time := Clock;
+      Pos : constant Card_Reader.Position := Card_Reader.Where;
+      Ok  : Boolean;
+   begin
+      Device_Store.Put
+        (Book_Key (Open_Index),
+         (Unsigned_32 (Pos.Chapter), Unsigned_32 (Pos.Offset), 0, 0), Ok);
+      Unsaved := False;
+      Put ("[store] position chapter");
+      Put (Pos.Chapter);
+      Put (" offset");
+      Put (Pos.Offset);
+      Put (if Ok then " saved in " else " NOT saved, ");
+      Put (Ms_Since (T0));
+      Put (" ms; generation");
+      Put (Integer (Device_Store.Generation));
+      Put (", slots");
+      Put (Device_Store.Used_Slots);
+      Put_Line ("");
+   end Save_Position;
+
    procedure Open_Book (I : Shelf.Index) is
       T0     : constant Time := Clock;
       Result : Card_Books.Status;
+      Saved  : Store_Record.Payload;
+      Found  : Boolean;
+      At_Pos : Card_Reader.Position;
    begin
+      Device_Store.Lookup (Book_Key (I), Saved, Found);
+      if Found and then Saved (1) <= Unsigned_32 (Natural'Last)
+        and then Saved (2) in 1 .. Unsigned_32 (Positive'Last)
+      then
+         At_Pos := (Chapter => Natural (Saved (1)),
+                    Offset  => Positive (Saved (2)));
+      end if;
       Card_Reader.Open
         (Volume, Shelf.Name (Books, I), Font, Reader_View.Default_Size,
-         Positions (I), Result);
+         At_Pos, Result);
       Put ("[reader] open " & Shelf.Name (Books, I) & ": " & Result'Image
            & ",");
       Put (Card_Reader.Chapter_Count);
@@ -161,13 +205,14 @@ procedure Main is
          return;
       end if;
       Open_Index := I;
+      Unsaved := False;
       Current := Reading;
       Render_Reader (X4_Display.Clean);
    end Open_Book;
 
    procedure Close_Book is
    begin
-      Positions (Open_Index) := Card_Reader.Where;
+      Save_Position;
       Card_Reader.Close;
       Current := Library;
       Render_Library;
@@ -187,6 +232,8 @@ procedure Main is
       Put_Line (if Moved then " ms" else " ms: end of the book");
       if Moved then
          Render_Reader;
+         Unsaved := True;
+         Turned := Clock;
       end if;
    end Turn;
 
@@ -264,6 +311,8 @@ procedure Main is
    Status      : FS.Mount_Status;
    Scan_Result : Scan.Scan_Status;
    Card_Ok     : Boolean;
+   Store_Ok    : Boolean;
+   T_Store     : Time;
 
 begin
    delay until Clock + Milliseconds (200);
@@ -273,6 +322,21 @@ begin
    X4_Display.Initialize;
    X4_Touch.Initialize (Touch_OK);
    Gauge.Initialize;
+
+   Put ("[store] ROM flash size ");
+   Put (Integer (Int_Flash.Rom_Chip_Size / 1024));
+   Put_Line (" KB");
+   T_Store := Clock;
+   Device_Store.Mount (Store_Ok);
+   Put ("[store] mount: " & (if Store_Ok then "OK" else "FAILED") & ",");
+   Put (Device_Store.Entries);
+   Put (" entries, generation");
+   Put (Integer (Device_Store.Generation));
+   Put (", slots");
+   Put (Device_Store.Used_Slots);
+   Put (", in ");
+   Put (Ms_Since (T_Store));
+   Put_Line (" ms");
 
    Card.Initialize (Card_Ok);
    if not Card_Ok then
@@ -324,6 +388,11 @@ begin
       delay until Clock + Milliseconds (20);
       Scan_Button (Left, Left_Pin, -1);
       Scan_Button (Right, Right_Pin, 1);
+
+      if Unsaved and then Current /= Library and then Clock - Turned > Save_Delay
+      then
+         Save_Position;
+      end if;
 
       declare
          TX, TY  : Natural;
