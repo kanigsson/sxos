@@ -1,7 +1,9 @@
 with Interfaces;
 
 --  Public-domain 5x7 GLCD ASCII font, from ESP32S3.ST7789.Text.
-package X4_Font is
+package X4_Font
+  with SPARK_Mode => On
+is
    subtype Byte is Interfaces.Unsigned_8;
    type Glyph is array (0 .. 4) of Byte;
 

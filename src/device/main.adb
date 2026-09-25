@@ -7,6 +7,8 @@ with System.BB.CPU_Primitives.Multiprocessors;
 with ESP32S3.Log; use ESP32S3.Log;
 with ESP32S3.GPIO;
 with X4_Display;
+with Mono_Frame;
+with Bitmap_Text;
 with X4_Touch;
 with Books_List;
 
@@ -32,6 +34,7 @@ procedure Main is
    Result   : Books_List.Result_Kind;
    Touch_OK : Boolean;
    Selected : Natural := 1;
+   Screen   : Mono_Frame.Frame;
 
    function Entry_Text (I : Positive) return String is
    begin
@@ -44,27 +47,29 @@ procedure Main is
    --  partial, so every move of the highlight re-runs it.
    procedure Render_List is
    begin
-      X4_Display.Clear;
-      X4_Display.Draw_Line (24, 26, "Books / ");
+      Mono_Frame.Clear (Screen);
+      Bitmap_Text.Draw (Screen, 24, 26, "Books / ");
       if Result = Books_List.OK and then Count > 0 then
          for I in 1 .. Count loop
             declare
                Y : constant Natural := Row_Base + (I - 1) * Row_Pitch;
             begin
                if I = Selected then
-                  X4_Display.Fill_Rect (Bar_X, Y - 12, Bar_W, Bar_H);
-                  X4_Display.Draw_Line (24, Y, Entry_Text (I), Inverted => True);
+                  Mono_Frame.Fill_Rect (Screen, Bar_X, Y - 12, Bar_W, Bar_H);
+                  Bitmap_Text.Draw (Screen, 24, Y, Entry_Text (I), Black => False);
                else
-                  X4_Display.Draw_Line (24, Y, Entry_Text (I));
+                  Bitmap_Text.Draw (Screen, 24, Y, Entry_Text (I));
                end if;
             end;
          end loop;
-         X4_Display.Draw_Line
-           (24, Row_Base + Count * Row_Pitch + 8, "Left/Right or touch to select");
+         Bitmap_Text.Draw
+           (Screen, 24, Row_Base + Count * Row_Pitch + 8,
+            "Left/Right or touch to select");
       else
-         X4_Display.Draw_Line (24, Row_Base, Books_List.Result_Kind'Image (Result));
+         Bitmap_Text.Draw
+           (Screen, 24, Row_Base, Books_List.Result_Kind'Image (Result));
       end if;
-      X4_Display.Show;
+      X4_Display.Show (Screen);
    end Render_List;
 
    --  Move the highlight to entry I; 0 or an out-of-range row is a no-op.

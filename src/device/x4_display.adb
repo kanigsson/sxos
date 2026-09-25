@@ -5,7 +5,6 @@ with System;
 with ESP32S3.GPIO;
 with ESP32S3.SPI;
 with ESP32S3.Log; use ESP32S3.Log;
-with X4_Font;
 
 package body X4_Display is
    --  X4 Pro pinout from the hardware-confirmed FreeInk SDK profile.
@@ -21,18 +20,14 @@ package body X4_Display is
    BUSY_Pin : constant ESP32S3.GPIO.Pin_Id := 6;
    Rail_Pin : constant ESP32S3.GPIO.Pin_Id := 1;
 
-   Width         : constant := 800;
-   Height        : constant := 480;
-   Bytes_Per_Row : constant := Width / 8;
-   Frame_Size    : constant := Bytes_Per_Row * Height;
+   Bytes_Per_Row : constant := Mono_Frame.Bytes_Per_Row;
+   Frame_Size    : constant := Mono_Frame.Frame_Size;
    Transfer_Max  : constant := 4_095;
 
    subtype Byte is Unsigned_8;
-   type Framebuffer is array (Natural range 0 .. Frame_Size - 1) of Byte;
    type Rx_Buffer is array (Natural range 0 .. Transfer_Max - 1) of Byte;
    type Probe_Bytes is array (Natural range <>) of Byte;
    type White_Row_Buffer is array (Natural range 0 .. Bytes_Per_Row - 1) of Byte;
-   Frame : aliased Framebuffer;
    Rx    : aliased Rx_Buffer;
    White_Row : aliased White_Row_Buffer := (others => 16#FF#);
    Controller_Variant : Byte := 16#FF#;
@@ -158,7 +153,7 @@ package body X4_Display is
       ESP32S3.SPI.Transfer (S, Data, Rx'Address, Count);
    end Send_Selected;
 
-   procedure Write_UC_New_Plane is
+   procedure Write_UC_New_Plane (Frame : Mono_Frame.Frame) is
       Session : ESP32S3.SPI.Session;
       Offset  : Natural := 0;
    begin
@@ -199,7 +194,7 @@ package body X4_Display is
       ESP32S3.SPI.Release (Session);
    end Write_UC_Old_White;
 
-   procedure Write_UC_Old_Frame is
+   procedure Write_UC_Old_Frame (Frame : Mono_Frame.Frame) is
       Session : ESP32S3.SPI.Session;
       Offset  : Natural := 0;
    begin
@@ -265,10 +260,10 @@ package body X4_Display is
       Data_Byte (16#02#);
    end Initialize_UC8279;
 
-   procedure Show_UC8279 is
+   procedure Show_UC8279 (Frame : Mono_Frame.Frame) is
       Busy_Start : Time;
    begin
-      Write_UC_New_Plane;
+      Write_UC_New_Plane (Frame);
       Write_UC_Old_White;
 
       Command (16#50#); -- CDI for full B/W refresh
@@ -293,7 +288,7 @@ package body X4_Display is
          delay until Clock + Milliseconds (1);
       end loop;
       Wait_UC_Idle;
-      Write_UC_Old_Frame;
+      Write_UC_Old_Frame (Frame);
    end Show_UC8279;
 
    procedure Initialize is
@@ -371,84 +366,11 @@ package body X4_Display is
       end if;
    end Initialize;
 
-   procedure Set_Black (X, Y : Natural) is
-      Index : constant Natural := Y * Bytes_Per_Row + X / 8;
-      Mask  : constant Byte := Shift_Left (Byte'(1), 7 - (X mod 8));
-   begin
-      Frame (Index) := Frame (Index) and not Mask;
-   end Set_Black;
-
-   procedure Set_White (X, Y : Natural) is
-      Index : constant Natural := Y * Bytes_Per_Row + X / 8;
-      Mask  : constant Byte := Shift_Left (Byte'(1), 7 - (X mod 8));
-   begin
-      Frame (Index) := Frame (Index) or Mask;
-   end Set_White;
-
-   procedure Fill_Rect (X, Y, W, H : Natural) is
-   begin
-      --  Portrait rectangle -> panel pixels, clipped the same way Draw_Line
-      --  clips before touching the framebuffer.
-      for R in 0 .. H - 1 loop
-         for C in 0 .. W - 1 loop
-            declare
-               PX : constant Natural := X + C;
-               PY : constant Natural := Y + R;
-            begin
-               if PX < Height and then PY < Width then
-                  Set_Black (PY, Height - 1 - PX);
-               end if;
-            end;
-         end loop;
-      end loop;
-   end Fill_Rect;
-
-   procedure Clear is
-   begin
-      Frame := (others => 16#FF#);
-   end Clear;
-
-   procedure Draw_Line (X, Y : Natural; Text : String; Inverted : Boolean := False) is
-      Scale : constant := 2;
-   begin
-      --  Portrait coordinates (480x800) -> panel RAM (800x480). On the
-      --  mounted X4 Pro, (799 - PY, PX) rendered upside down; rotate the
-      --  opposite way: (PY, 479 - PX). Clip before touching the framebuffer.
-      for I in Text'Range loop
-         for Col in 0 .. 4 loop
-            declare
-               Bits : constant Byte := X4_Font.Column (Text (I), Col);
-            begin
-               for Row in 0 .. 6 loop
-                  if (Bits and Shift_Left (Byte'(1), Row)) /= 0 then
-                     for DX in 0 .. Scale - 1 loop
-                        for DY in 0 .. Scale - 1 loop
-                           declare
-                              PX : constant Natural := X + (I - Text'First) * 6 * Scale + Col * Scale + DX;
-                              PY : constant Natural := Y + Row * Scale + DY;
-                           begin
-                              if PX < Height and then PY < Width then
-                                 if Inverted then
-                                    Set_White (PY, Height - 1 - PX);
-                                 else
-                                    Set_Black (PY, Height - 1 - PX);
-                                 end if;
-                              end if;
-                           end;
-                        end loop;
-                     end loop;
-                  end if;
-               end loop;
-            end;
-         end loop;
-      end loop;
-   end Draw_Line;
-
-   procedure Show is
+   procedure Show (Frame : Mono_Frame.Frame) is
       Offset : Natural := 0;
    begin
       if Controller_Variant = 16#68# then
-         Show_UC8279;
+         Show_UC8279 (Frame);
          return;
       end if;
 
