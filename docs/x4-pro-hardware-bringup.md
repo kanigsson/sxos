@@ -7,33 +7,33 @@ Status: ROM download access verified; sxos has been flashed and the reader remai
 The reader identified itself in CrossPoint USB Drive mode as:
 
 - USB VID:PID `303a:1001`, product `CrossPoint_X4_Pro`
-- USB serial / ESP32 MAC `B81F3FD5EF74` / `b8:1f:3f:d5:ef:74`
-- `/dev/sdb`: 14.6 GB USB mass-storage SD card (not mounted or written by this setup)
+- USB serial = the ESP32 MAC address
+- a 14.6 GB USB mass-storage SD card (not mounted or written by this setup)
 
-Safely ejecting the CrossPoint drive (`sudo eject -v /dev/sdb`) handed USB from mass storage to the ESP32-S3 USB Serial/JTAG interface. Linux then exposed `/dev/ttyACM0` as `Espressif USB JTAG/serial debug unit`. Identify the device node again before using commands; it can change.
+Safely ejecting the CrossPoint drive (`sudo eject -v <disk>`) handed USB from mass storage to the ESP32-S3 USB Serial/JTAG interface. Linux then exposed a `/dev/ttyACM*` port as `Espressif USB JTAG/serial debug unit`. Identify the device node again before using commands; it can change.
 
 ## Chip, flash, and security identification
 
-Read-only esptool v5.4.0 queries over `/dev/ttyACM0` reported:
+Read-only esptool v5.4.0 queries over that port reported:
 
 - ESP32-S3 (QFN56), revision v0.2, USB Serial/JTAG
 - 40 MHz crystal, 8 MB embedded AP_3v3 PSRAM
 - 16 MB SPI flash, manufacturer `0x0b`, device `0x4018`
 - Secure Boot disabled; Flash Encryption disabled; `SPI_BOOT_CRYPT_CNT=0`
 
-Example queries (esptool installed for this session in `/tmp/x4-esptool`):
+Example queries (`esptool` on `PATH`, e.g. from a venv with `pip install esptool`; `$PORT` is the `/dev/ttyACM*` device):
 
 ```sh
-/tmp/x4-esptool/bin/esptool --chip esp32s3 --port /dev/ttyACM0 chip-id
-/tmp/x4-esptool/bin/esptool --chip esp32s3 --port /dev/ttyACM0 flash-id
-/tmp/x4-esptool/bin/esptool --chip esp32s3 --port /dev/ttyACM0 get-security-info
+esptool --chip esp32s3 --port "$PORT" chip-id
+esptool --chip esp32s3 --port "$PORT" flash-id
+esptool --chip esp32s3 --port "$PORT" get-security-info
 ```
 
 These commands connected to the ESP32-S3 ROM loader; esptool's temporary stub ran in RAM. They did not write flash or eFuses. After each query the chip is reset.
 
 ## Preserved and verified backups
 
-`~/firmware-backups` contains:
+The off-device backup directory (`$BACKUPS` below) contains:
 
 | File | Size | Purpose |
 |---|---:|---|
@@ -54,8 +54,8 @@ The current sxos image replaces the bootloader, partition table, and app. The fu
 If recovery is needed, enter CrossPoint USB Drive mode and eject it to return to `/dev/ttyACM*`, then write a full dump from offset zero. Example for the original official dump (destructive; not run):
 
 ```sh
-/tmp/x4-esptool/bin/esptool --chip esp32s3 --port /dev/ttyACM0 write-flash \
-  0x0 "$HOME/firmware-backups/xteink-x4-pro-esp32s3-2026-09-23-145826.bin"
+esptool --chip esp32s3 --port "$PORT" write-flash \
+  0x0 "$BACKUPS/xteink-x4-pro-esp32s3-2026-09-23-145826.bin"
 ```
 
 Do not use the 5.3 MB CrossPoint app-only image as a substitute for that full restore if the bootloader or partition table has been changed.

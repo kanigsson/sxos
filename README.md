@@ -35,20 +35,21 @@ the choice is logged on USB serial. Buttons and tap-to-row selection are
 
 The connected device was identified as an ESP32-S3, revision 0.2, with 16 MiB
 flash and 8 MiB PSRAM. After safely ejecting CrossPoint USB Drive mode, it
-re-enumerated as `/dev/ttyACM0` (Espressif USB JTAG/serial). Read-only esptool
+re-enumerated as a `/dev/ttyACM*` port (Espressif USB JTAG/serial). Read-only esptool
 queries confirmed ROM-loader access, Secure Boot disabled, and Flash Encryption
-disabled. A full-flash backup in `~/firmware-backups` was validated against a
+disabled. A full-flash backup kept off-device was validated against a
 readback of the live device: bytes outside the CrossPoint app partition match
 exactly. See [`docs/x4-pro-hardware-bringup.md`](docs/x4-pro-hardware-bringup.md)
 for USB/flash recovery details.
 
 ## Build
 
-The Ada toolchain is installed locally. Add Alire to `PATH` and build:
+Needs `alr` (Alire 2.x) on `PATH`, with the sibling `../ada_esp32s3`
+checkout next to this one:
 
 ```sh
-export PATH="$HOME/install/alr-2.1.1/bin:$PATH"
 ./build.sh
+ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0   # port is positional
 ```
 
 `build.sh` selects the embedded runtime profile and calls the shared
@@ -87,7 +88,7 @@ Recovered from the hardware-confirmed FreeInk SDK X4 Pro profile (see
 - `src/x4_touch.adb` — GT911 touch driver (rail power, reset dance, polling).
 - `src/books_list.adb` — bounded read-only FAT32/VFAT SD directory scan.
 - `src/x4_font.ads` — public-domain 5×7 ASCII bitmap font (from the HAL).
-- `board.ads` — detected 16 MiB flash and a 2 MiB PSRAM mapping.
+- `board.ads` — 16 MiB flash; all 8 MiB PSRAM mapped.
 - `docs/x4-pro-hardware-bringup.md` — USB, flash, backup, and recovery notes.
 - `docs/x4-pro-display-bringup.md` — panel pinout, UC8279 refresh, orientation.
 - `docs/x4-pro-storage.md` — verified SD wiring, FAT32 listing, limitations.
@@ -98,6 +99,6 @@ ROM download mode and write the full dump from offset zero (this has not been
 tested as a write):
 
 ```sh
-/tmp/x4-esptool/bin/esptool --chip esp32s3 --port /dev/ttyACM0 write-flash \
-  0x0 "$HOME/firmware-backups/xteink-x4-pro-esp32s3-2026-09-23-145826.bin"
+esptool --chip esp32s3 --port "$PORT" write-flash \
+  0x0 "$BACKUPS/xteink-x4-pro-esp32s3-2026-09-23-145826.bin"
 ```
