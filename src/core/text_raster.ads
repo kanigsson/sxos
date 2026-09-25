@@ -9,9 +9,8 @@ with Truetype;
 --  Coordinates are portrait Mono_Frame coordinates: text runs left to right
 --  along increasing X, above a baseline at Y.
 --
---  NOT REENTRANT: glyphs are rendered into one static coverage cell (and
---  Truetype.Raster has static buffers of its own), to keep a large glyph off
---  a small stack.
+--  Glyphs are drawn through Glyph_Cache, which rasterises each glyph and
+--  size once.  NOT REENTRANT, like the cache and Truetype.Raster.
 package Text_Raster
   with SPARK_Mode => On
 is

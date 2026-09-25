@@ -1,8 +1,13 @@
---  sxos: the Library screen.  Mount the card, list /Books, load a font face
---  from /Fonts into PSRAM, and let the user move a selection with the nav
---  buttons or pick a book by touch; tapping the selected book opens it
---  (logged only until the Reader, M5).  The first screen is a full refresh;
---  selection changes are fast (DU) updates.
+--  sxos: mount the card, list /Books, load a font face from /Fonts into
+--  PSRAM, and run the two screens.
+--
+--  Library: the nav buttons move the selection, a tap selects a book and a
+--  tap on the selected one opens it.  Reader: Right or a tap on the right
+--  two thirds turns forward, Left or a tap on the left third back; a tap on
+--  the top band opens the menu over the page, whose Library button closes
+--  the book.  Positions are remembered per book until power-off (persisting
+--  them is M6).  The first screen is a full refresh, opening a book a clean
+--  one, and everything else a fast (DU) update.
 with Ada.Real_Time; use Ada.Real_Time;
 with Interfaces; use Interfaces;
 with System.BB.CPU_Primitives.Multiprocessors;
@@ -13,14 +18,16 @@ with Interfaces.C;
 
 with App_State;
 with Bitmap_Text;
-with Book_Source;
 with Card;
-with Card_Scan;
+with Card_Books;
+with Card_Library;
+with Card_Reader;
 with Font_Catalog;
 with Font_Loader;
 with Gauge;
 with Library_View;
 with Mono_Frame;
+with Reader_View;
 with Shelf;
 with Status_Bar;
 with Truetype;
@@ -31,9 +38,10 @@ pragma Unreferenced (System.BB.CPU_Primitives.Multiprocessors);
 
 procedure Main is
    package FS renames Card.FS;
-   package Scan is new Card_Scan (FS);
+   package Scan renames Card_Library;
    use type FS.Mount_Status;
    use type Scan.Scan_Status;
+   use type Card_Books.Status;
 
    --  X4 Pro nav keys: plain active-low buttons with internal pull-ups.
    --  Left is up/previous, Right is down/next.
@@ -49,64 +57,20 @@ procedure Main is
    Selected : Natural := 0;
    Touch_OK : Boolean;
 
+   type Mode is (Library, Reading, Menu);
+   Current : Mode := Library;
+
+   --  The open book, and where each book was left (in RAM until M6).
+   Open_Index : Natural := 0;
+   Positions  : array (Shelf.Index) of Card_Reader.Position;
+
    function Ms_Since (T : Time) return Integer is
      (Integer (To_Duration (Clock - T) * 1000.0));
 
    package Fonts is new Font_Loader (FS, Scan.Fonts_Folder);
-   package Book_Files is new Book_Source (FS, Scan.Books_Folder);
-   use type Book_Files.Status;
-   Current : Book_Files.Book;
 
    function Heap_Free return Interfaces.C.size_t
      with Import, Convention => C, External_Name => "__bare_heap_free_bytes";
-
-   --  Milestone M4: open the book and load its first chapters, logging
-   --  sizes and times.  The reader screen arrives with M5.
-   procedure Open_Book (I : Shelf.Index) is
-      T0     : Time := Clock;
-      Result : Book_Files.Status;
-      Shown  : Boolean := False;
-   begin
-      Book_Files.Open (Volume, Shelf.Name (Books, I), Current, Result);
-      Put ("[book] open " & Shelf.Name (Books, I) & ": " & Result'Image & ",");
-      Put (Book_Files.Chapter_Count (Current));
-      Put (" chapters in ");
-      Put (Ms_Since (T0));
-      Put_Line (" ms");
-      if Result /= Book_Files.OK then
-         return;
-      end if;
-      for C in 1 .. Natural'Min (Book_Files.Chapter_Count (Current), 6) loop
-         T0 := Clock;
-         Book_Files.Load (Volume, Current, C, Result);
-         Put ("[book]   chapter");
-         Put (C);
-         Put (": " & Result'Image & ",");
-         Put (Book_Files.Text_Last (Current));
-         Put (" bytes of text in ");
-         Put (Ms_Since (T0));
-         Put (" ms, heap free ");
-         Put (Integer (Heap_Free) / 1024);
-         Put_Line (" KB");
-         if Result = Book_Files.OK and then not Shown
-           and then Book_Files.Text_Last (Current) > 0
-         then
-            declare
-               T : String renames Book_Files.Text (Current).all;
-               L : Natural := Natural'Min (Book_Files.Text_Last (Current), 200);
-            begin
-               --  Cut at a UTF-8 character boundary.
-               while L > 0 and then L < Book_Files.Text_Last (Current)
-                 and then Character'Pos (T (L + 1)) in 16#80# .. 16#BF#
-               loop
-                  L := L - 1;
-               end loop;
-               Put_Line ("[book]   | " & T (1 .. L));
-            end;
-            Shown := True;
-         end if;
-      end loop;
-   end Open_Book;
 
    procedure Load_Font (Face : Font_Catalog.Index) is
       T0 : constant Time := Clock;
@@ -128,26 +92,148 @@ procedure Main is
       X4_Display.Show (Screen);
    end Show_Problem;
 
-   procedure Render is
+   procedure Render_Library is
       T0 : constant Time := Clock;
-      B  : Status_Bar.Battery;
    begin
-      B := Gauge.Read;
-      Library_View.Draw (Screen, Font, Books, Selected, B);
+      Library_View.Draw (Screen, Font, Books, Selected, Gauge.Read);
       Put ("[sxos] library drawn in ");
       Put (Ms_Since (T0));
       Put_Line (" ms");
       X4_Display.Show (Screen);
-   end Render;
+   end Render_Library;
+
+   procedure Render_Reader
+     (Kind : X4_Display.Refresh_Kind := X4_Display.Fast_Update)
+   is
+      T0 : constant Time := Clock;
+   begin
+      Card_Reader.Draw
+        (Screen, Shelf.Title (Books, Open_Index), Gauge.Read,
+         Menu => Current = Menu);
+      Put ("[reader] chapter");
+      Put (Card_Reader.Chapter);
+      Put (" page");
+      Put (Card_Reader.Page);
+      Put ("/");
+      Put (Card_Reader.Page_Count);
+      Put (" drawn in ");
+      Put (Ms_Since (T0));
+      Put_Line (" ms");
+      X4_Display.Show (Screen, Kind);
+   end Render_Reader;
 
    procedure Set_Selection (I : Natural) is
    begin
       if I in 1 .. Books.Count and then I /= Selected then
          Selected := I;
          Put_Line ("[sxos] selected: " & Shelf.Name (Books, Selected));
-         Render;
+         Render_Library;
       end if;
    end Set_Selection;
+
+   procedure Open_Book (I : Shelf.Index) is
+      T0     : constant Time := Clock;
+      Result : Card_Books.Status;
+   begin
+      Card_Reader.Open
+        (Volume, Shelf.Name (Books, I), Font, Reader_View.Default_Size,
+         Positions (I), Result);
+      Put ("[reader] open " & Shelf.Name (Books, I) & ": " & Result'Image
+           & ",");
+      Put (Card_Reader.Chapter_Count);
+      Put (" chapters, at chapter");
+      Put (Card_Reader.Chapter);
+      Put (" page");
+      Put (Card_Reader.Page);
+      Put ("/");
+      Put (Card_Reader.Page_Count);
+      Put (" in ");
+      Put (Ms_Since (T0));
+      Put (" ms, heap free ");
+      Put (Integer (Heap_Free) / 1024);
+      Put_Line (" KB");
+      if Result /= Card_Books.OK then
+         --  Stay in the Library; the next input redraws it.
+         Reader_View.Draw_Message
+           (Screen, Font, Shelf.Title (Books, I), Gauge.Read,
+            "Cannot open: " & Result'Image);
+         X4_Display.Show (Screen);
+         return;
+      end if;
+      Open_Index := I;
+      Current := Reading;
+      Render_Reader (X4_Display.Clean);
+   end Open_Book;
+
+   procedure Close_Book is
+   begin
+      Positions (Open_Index) := Card_Reader.Where;
+      Card_Reader.Close;
+      Current := Library;
+      Render_Library;
+   end Close_Book;
+
+   procedure Turn (Step : Integer) is
+      T0    : constant Time := Clock;
+      Moved : Boolean;
+   begin
+      if Step > 0 then
+         Card_Reader.Next_Page (Volume, Moved);
+      else
+         Card_Reader.Prev_Page (Volume, Moved);
+      end if;
+      Put ("[reader] turn in ");
+      Put (Ms_Since (T0));
+      Put_Line (if Moved then " ms" else " ms: end of the book");
+      if Moved then
+         Render_Reader;
+      end if;
+   end Turn;
+
+   procedure On_Button (Step : Integer) is
+   begin
+      case Current is
+         when Library =>
+            Set_Selection (Selected + Step);
+         when Reading =>
+            Turn (Step);
+         when Menu =>
+            Current := Reading;
+            Render_Reader;
+      end case;
+   end On_Button;
+
+   procedure On_Tap (X, Y : Natural) is
+      Hit : Natural;
+   begin
+      case Current is
+         when Library =>
+            Hit := Library_View.Book_At (Font, Books, Selected, Y);
+            if Hit /= 0 and then Hit = Selected then
+               Open_Book (Hit);
+            else
+               Set_Selection (Hit);
+            end if;
+         when Reading =>
+            case Reader_View.Zone_At (X, Y) is
+               when Reader_View.Menu =>
+                  Current := Menu;
+                  Render_Reader;
+               when Reader_View.Back =>
+                  Turn (-1);
+               when Reader_View.Forward =>
+                  Turn (1);
+            end case;
+         when Menu =>
+            case Reader_View.Menu_At (X, Y) is
+               when Reader_View.Library =>
+                  Close_Book;
+               when Reader_View.Close =>
+                  Current := Reading;
+                  Render_Reader;
+            end case;
+      end case;
+   end On_Tap;
 
    --  Debounced, edge-triggered button scan at a fixed poll cadence.
    type Button_State is record
@@ -169,7 +255,7 @@ procedure Main is
             State.Pressed := Raw;
             State.Ticks := 0;
             if Raw then
-               Set_Selection (Integer (Selected) + Step);
+               On_Button (Step);
             end if;
          end if;
       end if;
@@ -231,7 +317,7 @@ begin
    ESP32S3.GPIO.Configure (Left_Pin, ESP32S3.GPIO.Input, ESP32S3.GPIO.Pull_Up);
    ESP32S3.GPIO.Configure (Right_Pin, ESP32S3.GPIO.Input, ESP32S3.GPIO.Pull_Up);
 
-   Render;
+   Render_Library;
    Put_Line ("[sxos] library shown; awaiting input");
 
    loop
@@ -242,16 +328,10 @@ begin
       declare
          TX, TY  : Natural;
          Contact : Boolean;
-         Hit     : Natural;
       begin
          X4_Touch.Read_Contact (TX, TY, Contact);
          if Contact then
-            Hit := Library_View.Book_At (Font, Books, Selected, TY);
-            if Hit /= 0 and then Hit = Selected then
-               Open_Book (Hit);
-            else
-               Set_Selection (Hit);
-            end if;
+            On_Tap (TX, TY);
          end if;
       end;
    end loop;

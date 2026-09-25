@@ -58,8 +58,25 @@ is
       Right    : constant := Mono_Frame.Width - Margin;
       Batt_X   : constant Integer :=
         Right - Nub_W - Body_W - (if Batt.Charging then 14 else 0);
+      Level_X  : constant Integer :=
+        (if Batt.Known
+         then Batt_X - 8 - Text_Raster.Width (F, Text_Size, Image (Batt.Level))
+         else Batt_X);
+      Max_W    : constant Integer := Level_X - 16 - Margin;
+      Ellipsis : constant String := "...";
+      Cut      : Natural;
    begin
-      Text_Raster.Draw_Text (Fr, F, Text_Size, Margin, Baseline, Title);
+      if Text_Raster.Width (F, Text_Size, Title) <= Max_W then
+         Text_Raster.Draw_Text (Fr, F, Text_Size, Margin, Baseline, Title);
+      elsif Max_W > 0 then
+         Cut := Text_Raster.Fit
+           (F, Text_Size, Title,
+            Natural'Max
+              (0, Max_W - Text_Raster.Width (F, Text_Size, Ellipsis)));
+         Text_Raster.Draw_Text
+           (Fr, F, Text_Size, Margin, Baseline,
+            Title (Title'First .. Cut) & Ellipsis);
+      end if;
       Draw_Battery (Fr, Right, Mid, Batt);
       if Batt.Known then
          Text_Raster.Draw_Right

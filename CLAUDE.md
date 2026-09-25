@@ -66,7 +66,8 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
   ```
 
   The PGM is portrait, as the device is held. Check layout and font changes
-  there before flashing.
+  there before flashing. The Reader needs a card image:
+  `preview.sh CARD.img reader out.pgm BOOK [CHAPTER [PAGE [SIZE [menu]]]]`.
 - SPARK **legality** (not proof) check of the core — gnatprove from Alire
   (`alr get gnatprove` / the Alire releases dir) with native GNAT on `PATH`:
 
@@ -86,6 +87,9 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
   `new Bytes.Byte_Array (...)` is how font files and book text get loaded.
   The SD driver reads through the FIFO (no DMA), so reading straight into
   PSRAM buffers is fine.
+- **Never assign an aggregate to a large object** (`X.all := (others =>
+  ...)`): GNAT may build it as a temporary on the stack first. Clearing the
+  glyph cache's ~80 KB table that way hung the first M5 build. Use a loop.
 - Ada is case-insensitive: a local `Ok : Boolean` hides an enumeration
   literal `OK` in the same scope. Name such locals `Read_Ok`, `Walk_Ok`, ...
 
@@ -94,7 +98,9 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
 `preview/obj/fat_check` runs `Fat32` over a FAT32 disk image (list
 directories, or read a file back whole and in odd-sized chunks),
 `preview/obj/book_check IMAGE [BOOK OUT.txt]` opens every book and loads
-every chapter (or dumps one book's text), and
+every chapter (or dumps one book's text; `--layout [SIZE]` also times
+pagination), `preview/obj/reader_check IMAGE [SIZE]` turns through every book
+to the end and back and checks the Reader's navigation, and
 `preview/preview.sh CARD.img library out.pgm` renders through the same
 `Fat32`/`Card_Scan`/`Font_Loader` chain the firmware uses. Make an image with
 `mkfs.fat -C -F 32 -S 512 -s 8 card.img 65536` and fill it with any FAT tool

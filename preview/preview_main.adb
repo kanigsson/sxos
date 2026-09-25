@@ -1,6 +1,10 @@
 --  Render one sxos screen from a host directory standing in for the SD card.
 --
 --    preview_main CARD library OUT.pgm [SELECTED [BATTERY%]]
+--    preview_main CARD.img reader OUT.pgm BOOK [CHAPTER [PAGE [SIZE [menu]]]]
+--
+--  The reader screen opens BOOK (a file name in /Books) at CHAPTER (default:
+--  the first with text) and turns PAGE - 1 pages forward, at SIZE px.
 --
 --  CARD is a directory (CARD/Books, CARD/Fonts) or, if it ends in ".img", a
 --  FAT32 disk image read through the same Fat32/Card_Scan/Font_Loader code
@@ -10,7 +14,12 @@ with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Streams.Stream_IO;
 with Ada.Text_IO; use Ada.Text_IO;
 
+with Ada.Calendar;
+
+with Image_Books;
+with Image_Reader;
 with Library_View;
+with Reader_View;
 with Mono_Frame;
 with Shelf;
 with Status_Bar;
@@ -59,6 +68,8 @@ begin
    if Argument_Count < 3 then
       Put_Line ("usage: preview_main CARD_DIR library OUT.pgm "
                 & "[SELECTED [BATTERY%]]");
+      Put_Line ("       preview_main CARD.img reader OUT.pgm BOOK "
+                & "[CHAPTER [PAGE [SIZE [menu]]]]");
       Set_Exit_Status (Failure);
       return;
    end if;
@@ -98,9 +109,11 @@ begin
       return;
    end if;
 
-   if Argument_Count >= 5 then
+   if Argument (2) = "library" and then Argument_Count >= 5 then
       Batt := (Known => True, Level => Natural'Value (Argument (5)),
                Charging => False);
+   else
+      Batt := (Known => True, Level => 80, Charging => False);
    end if;
 
    if Argument (2) = "library" then
@@ -118,6 +131,41 @@ begin
          (if Argument_Count >= 4 then Natural'Value (Argument (4))
           else (if Books.Count > 0 then 1 else 0)),
          Batt);
+   elsif Argument (2) = "reader" and then Is_Image and then Argument_Count >= 4
+   then
+      declare
+         use Ada.Calendar;
+         use type Image_Books.Status;
+         function Arg (I : Positive; Default : Natural) return Natural is
+           (if Argument_Count >= I then Natural'Value (Argument (I))
+            else Default);
+         Result : Image_Books.Status;
+         Moved  : Boolean := True;
+         T0     : Time := Clock;
+      begin
+         Image_Reader.Open
+           (Volume, Argument (4), Font, Arg (7, Reader_View.Default_Size),
+            (Chapter => Arg (5, 0), Offset => 1), Result);
+         Put_Line ("open: " & Result'Image & Duration'Image (Clock - T0)
+                   & " s");
+         if Result /= Image_Books.OK then
+            Set_Exit_Status (Failure);
+            return;
+         end if;
+         for I in 2 .. Arg (6, 1) loop
+            Image_Reader.Next_Page (Volume, Moved);
+            exit when not Moved;
+         end loop;
+         T0 := Clock;
+         Image_Reader.Draw
+           (Screen, Argument (4), Batt,
+            Menu => Argument_Count >= 8 and then Argument (8) = "menu");
+         Put_Line ("chapter" & Image_Reader.Chapter'Image & " of"
+                   & Image_Reader.Chapter_Count'Image & ", page"
+                   & Image_Reader.Page'Image & " of"
+                   & Image_Reader.Page_Count'Image & ", drawn in"
+                   & Duration'Image (Clock - T0) & " s");
+      end;
    else
       Put_Line ("unknown screen " & Argument (2));
       Set_Exit_Status (Failure);

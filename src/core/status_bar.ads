@@ -1,8 +1,9 @@
 with Mono_Frame;
 with Truetype;
 
---  The strip across the top of every screen: a title on the left, the
---  battery on the right, a rule underneath.
+--  The strip across the top of every screen: a title on the left (shortened
+--  with "..." when it would run into the battery), the battery on the
+--  right, a rule underneath.
 package Status_Bar
   with SPARK_Mode => On
 is

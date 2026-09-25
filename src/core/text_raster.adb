@@ -1,5 +1,6 @@
 with Interfaces; use Interfaces;
 
+with Glyph_Cache;
 with Truetype.Raster;
 with UTF8;
 
@@ -8,11 +9,6 @@ package body Text_Raster
 is
 
    package TR renames Truetype.Raster;
-
-   --  Scratch coverage for ONE glyph; see the package spec on reentrancy.
-   --  128 x 128 covers every glyph up to about 110 px.
-   Cell : constant := 128;
-   Cov  : TR.Coverage_Array (0 .. Cell * Cell - 1) := (others => 0);
 
    --  Font units -> pixels at Size, rounded up.
    function Px (F : Truetype.Font; Units : Natural; Size : Positive)
@@ -69,13 +65,11 @@ is
       Black    : Boolean := True;
       Gain     : Natural := Auto_Gain)
    is
-      Pen  : Integer := X;
-      P    : Positive := Str'First;
-      C    : UTF8.Code_Point;
-      G    : Natural;
-      W, H, Adv : Natural;
-      XO, YO    : Integer;
-      Ok        : Boolean;
+      Pen : Integer := X;
+      P   : Positive := Str'First;
+      C   : UTF8.Code_Point;
+      G   : Natural;
+      Adv : Natural;
 
       G_Eff : constant Positive :=
         (if Gain = Auto_Gain then Gain_For (Size) else Gain);
@@ -83,26 +77,9 @@ is
       while P <= Str'Last loop
          UTF8.Next_Code (Str, P, C);
          G := Truetype.Glyph_Index (F, Unsigned_32 (C));
-
          if G /= 0 then
-            TR.Render (F, G, Size, W, H, XO, YO, Adv, Cov, Ok, Gain => G_Eff);
-
-            --  A glyph too big for the scratch cell is skipped rather than
-            --  drawn wrong; the pen still advances so the line stays aligned.
-            if Ok then
-               for Row in 0 .. H - 1 loop
-                  for Col in 0 .. W - 1 loop
-                     --  Below-threshold pixels are left alone rather than
-                     --  painted background, so a glyph never erases a
-                     --  neighbour that overlaps its cell.
-                     if Natural (Cov (Row * W + Col)) >= Ink_Threshold then
-                        Mono_Frame.Plot
-                          (Fr, Pen + XO + Col, Baseline + YO + Row, Black);
-                     end if;
-                  end loop;
-               end loop;
-            end if;
-
+            Glyph_Cache.Draw
+              (Fr, F, G, Size, G_Eff, Ink_Threshold, Pen, Baseline, Black, Adv);
             Pen := Pen + Adv;
          end if;
       end loop;

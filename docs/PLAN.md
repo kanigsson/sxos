@@ -108,7 +108,7 @@ problems are fixed there, not by flashing.
 | M2 ✓ | FAT32 split into pure parser + `Card`; open/read files; load TTF from `/Fonts`; Library rendered in TrueType; `Gauge` + status bar | SD read throughput for a ~1 MB font |
 | M3 ✓ | **UC8279 fast/partial refresh** for page turns; full refresh every N turns | **highest — register/waveform sequence must be taken from FreeInk/CrossPoint and confirmed on the device** |
 | M4 ✓ | Book sources: TXT stream; EPUB via ZIP directory + Inflate + OPF spine + XHTML → text | Inflate is the largest new component |
-| M5 | Reader: pagination, page turns, overlay, back to Library | layout speed on long chapters |
+| M5 ✓ | Reader: pagination, page turns, overlay, back to Library | layout speed on long chapters |
 | M6 | `Store`: positions and settings in internal flash | ROM flash calls from the bare runtime (cache/interrupt handling) |
 | M7 | Settings screen (font face and size), shared by both screens | — |
 | M8 | Polish: sorted and paged Library, power button → deep sleep, idle sleep | wake sources on this board |
@@ -118,9 +118,41 @@ parser part), M4 and M5 can mostly be developed against the host preview.
 
 ## Status and next steps
 
-M0–M4 are done and confirmed on the device (see the table): the device boots
+M0–M5 are done and confirmed on the device (see the table): the device boots
 into the Library, rendered with DejaVu Serif from the card, with a working
-battery gauge; the user found the Library's type size good.
+battery gauge; the user found the Library's type size good. Books open
+into the Reader and page through on the device.
+
+**M5 (Reader)**, confirmed on the device:
+
+- `Page_Layout` sets a chapter's paragraphs: first-line indent (1.5 em),
+  a quarter-line gap between paragraphs, baselines about 1.35 em apart.
+  Lines break greedily at spaces and after a hyphen or dash inside a word;
+  U+00A0 never breaks. **Ragged right**: justification is implemented
+  (`Reader_View.Justify`) but off, because without hyphenation ~40
+  characters a line leave large holes, in German especially.
+- A page is fully determined by its start offset. `Paginate` builds the
+  chapter's page-start table (on the heap, up to 16 384 pages) by a
+  measure-only pass, and drawing re-runs `Page_End` from the start, so
+  drawing and pagination cannot disagree. `Text_Metrics` caches glyph ids
+  and advances for Latin/Greek/Cyrillic/punctuation per (face, size).
+- `Glyph_Cache` keeps rendered 1 bpp glyphs in PSRAM (256 KB pool, dropped
+  on a font change). The Library now draws in 12 ms warm (110 ms before).
+- `Reader` (generic over `Fat32`/`Book_Source`, instantiated at library
+  level as `Card_Reader`) turns pages across chapters, skips chapters with
+  no text, shows a failed chapter as one page with the reason, and reports
+  the position as (chapter, page-start offset). Positions are kept per book
+  in RAM until M6.
+- Input: Right / tap on the right two thirds forward, Left / left third
+  back, tap on the top band for the menu (chapter and page, Library
+  button); any button or a tap elsewhere closes the menu.
+- Reading size is `Reader_View.Default_Size` = 24 px until M7; the user
+  would like it a bit bigger, which the Settings screen will cover.
+- Measured on the device: a page draws in 14–25 ms, a DU turn refreshes in
+  0.60 s, opening Baskerville at its 200 KB chapter (load, inflate,
+  convert, paginate 321 pages) takes 0.40 s. On the host the largest
+  chapter (283 KB of text, 435 pages) paginates in 1.4 ms.
+  `preview/obj/reader_check` walks every book forward and back.
 
 **M4 (book sources)**, confirmed on the device (opening a book only logs
 it for now; the Reader screen is M5). The rules below apply to any EPUB, not
@@ -157,11 +189,10 @@ only the test books:
   `preview/obj/book_check IMAGE` loads every chapter of every book in an
   image, and its text matched an independent Python extraction.
 
-**Next: M5 (Reader)** — lay out a chapter's paragraphs into pages with the
-Truetype engine at the reading font size, page turns (Fast refresh), skip
-empty chapters (covers), the overlay, and back to the Library. Build the
-page-start table per chapter by a measure-only pass; the largest test chapter
-is 283 KB of text, so check its layout time on the host first.
+**Next: M6 (Store)** — persist the per-book positions (`Card_Reader.Where`,
+today kept in `Main`'s `Positions` array) and settings in internal flash,
+keyed by file name and size. Save on leaving a book and after a short idle
+delay following a page turn, not on every turn.
 
 **M3 (fast refresh)** is ported from the FreeInk SDK's X4 Pro UC8279 driver
 (github.com/Free-Ink/freeink-sdk, MIT,
@@ -185,9 +216,9 @@ for now, but the natural next display step.
 
 Useful facts for later milestones:
 
-- **Input (M5):** besides Left (GPIO0), Right (GPIO7) and Power (GPIO3), the
+- **Input:** besides Left (GPIO0), Right (GPIO7) and Power (GPIO3), the
   GT911 has a capacitive **Home key** (FreeInk's X4 Pro profile:
-  `hasHomeKey`) — a natural Back button.
+  `hasHomeKey`) — a natural Back button (not used yet).
 - **Charging:** the charger's STAT line is GPIO21, active high; `Gauge.Read`
   already reports it.
 - **Decided:** the font-size setting applies to the reading text only; the
@@ -200,5 +231,6 @@ Useful facts for later milestones:
   full-page text (tuned only on the Library so far).
 - Whether the Reader should mark headings (centred, spaced) once there is
   emphasis support; `Xhtml_Text` currently drops that information.
-- `&nbsp;` is kept as U+00A0: the M5 layout must treat it as a non-breaking
-  space.
+- Whether chapter-crossing turns in very large chapters need the layout
+  cached or done incrementally (0.4 s to open a 200 KB chapter is fine so
+  far).
