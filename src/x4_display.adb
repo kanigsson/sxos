@@ -378,12 +378,37 @@ package body X4_Display is
       Frame (Index) := Frame (Index) and not Mask;
    end Set_Black;
 
+   procedure Set_White (X, Y : Natural) is
+      Index : constant Natural := Y * Bytes_Per_Row + X / 8;
+      Mask  : constant Byte := Shift_Left (Byte'(1), 7 - (X mod 8));
+   begin
+      Frame (Index) := Frame (Index) or Mask;
+   end Set_White;
+
+   procedure Fill_Rect (X, Y, W, H : Natural) is
+   begin
+      --  Portrait rectangle -> panel pixels, clipped the same way Draw_Line
+      --  clips before touching the framebuffer.
+      for R in 0 .. H - 1 loop
+         for C in 0 .. W - 1 loop
+            declare
+               PX : constant Natural := X + C;
+               PY : constant Natural := Y + R;
+            begin
+               if PX < Height and then PY < Width then
+                  Set_Black (PY, Height - 1 - PX);
+               end if;
+            end;
+         end loop;
+      end loop;
+   end Fill_Rect;
+
    procedure Clear is
    begin
       Frame := (others => 16#FF#);
    end Clear;
 
-   procedure Draw_Line (X, Y : Natural; Text : String) is
+   procedure Draw_Line (X, Y : Natural; Text : String; Inverted : Boolean := False) is
       Scale : constant := 2;
    begin
       --  Portrait coordinates (480x800) -> panel RAM (800x480). On the
@@ -403,7 +428,11 @@ package body X4_Display is
                               PY : constant Natural := Y + Row * Scale + DY;
                            begin
                               if PX < Height and then PY < Width then
-                                 Set_Black (PY, Height - 1 - PX);
+                                 if Inverted then
+                                    Set_White (PY, Height - 1 - PX);
+                                 else
+                                    Set_Black (PY, Height - 1 - PX);
+                                 end if;
                               end if;
                            end;
                         end loop;

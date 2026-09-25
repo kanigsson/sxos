@@ -1,8 +1,8 @@
 # Xteink X4 Pro display bring-up
 
 Status: **hello and the SD `/Books` listing confirmed visible on the X4 Pro.**
-The first portrait listing was upside down; the rotation fix is built but has
-not yet been flashed or verified on the panel.
+The first portrait listing was upside down; the rotation fix is confirmed on
+the panel.
 
 ## Live hardware findings
 
@@ -48,15 +48,15 @@ The X4 Pro UC8279 addresses 800×600 gates, with the 480 visible rows beginning 
 
 The B/W framebuffer format is 1 bpp, MSB-first, `0xFF` white and zero bits black. The screen driver and rendering code are in `src/x4_display.adb`.
 
-## Portrait orientation (pending on-glass confirmation)
+## Portrait orientation
 
 The panel RAM is 800×480; the portrait UI uses 480×800 coordinates `(PX, PY)`.
 The first Books image used panel coordinates `(799 - PY, PX)` (a 90° rotation),
 and the operator confirmed the text was **upside down** even though the directory
 listing worked. To rotate that image 180° on the panel, `Draw_Line` now maps
 `(PX, PY)` to `(PY, 479 - PX)` instead. This changes only the rasterizer, not
-the known-good UC8279 refresh or SD path. It builds successfully; verify the
-text direction after a future flash. See [SD/Books notes](x4-pro-storage.md)
+the known-good UC8279 refresh or SD path. The operator confirmed the
+corrected text reads right-side up in portrait. See [SD/Books notes](x4-pro-storage.md)
 for the card and filesystem findings.
 
 ## Verified result

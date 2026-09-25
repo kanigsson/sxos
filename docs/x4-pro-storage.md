@@ -1,8 +1,8 @@
 # X4 Pro SD card and Books listing
 
 Status: **confirmed on hardware** for SD initialization, FAT32 directory reading, and
-on-screen listing. The portrait orientation correction is built but **not yet
-flashed/tested** (see [display bring-up](x4-pro-display-bringup.md)).
+on-screen listing. The portrait orientation correction is also confirmed (see
+[display bring-up](x4-pro-display-bringup.md)).
 
 ## Wiring and power
 
@@ -49,6 +49,5 @@ on the connected device reported:
 The operator confirmed **the directory listing works on the screen**, so the
 inserted card has a readable FAT32 `/Books` directory. The text was upside
 down in that image. The frame rotation has since been inverted in
-`src/x4_display.adb`, but has **not yet been flashed**; the on-screen direction
-of the correction remains to be verified. The ROM-flashed bootloader, partition
+`src/x4_display.adb` and confirmed right-side up on the panel. The ROM-flashed bootloader, partition
 table and app passed esptool's write verification; the device booted normally.
