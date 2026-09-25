@@ -1,5 +1,5 @@
 name = "sxos"
-description = "Bare-metal Ada experiments for the Xteink X4 Pro e-paper reader"
+description = "Bare-metal Ada e-reader firmware for the Xteink X4 Pro"
 version = "0.1.0-dev"
 
 licenses = "MIT"

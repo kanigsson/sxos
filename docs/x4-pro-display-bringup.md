@@ -6,7 +6,7 @@ the panel.
 
 ## Live hardware findings
 
-The X4 Pro display connections documented by the hardware-confirmed [FreeInk SDK profile](https://github.com/crosspoint-reader/freeink-sdk/blob/main/libs/hardware/BoardConfig/include/BoardConfig.h) are:
+The X4 Pro display connections documented by the hardware-confirmed [FreeInk SDK profile](https://github.com/Free-Ink/freeink-sdk/blob/main/libs/hardware/BoardConfig/include/BoardConfig.h) are:
 
 | Signal | ESP32-S3 GPIO |
 |---|---:|
