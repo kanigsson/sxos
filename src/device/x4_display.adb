@@ -32,6 +32,20 @@ package body X4_Display is
    White_Row : aliased White_Row_Buffer := (others => 16#FF#);
    Controller_Variant : Byte := 16#FF#;
 
+   --  UC8279 gate geometry: 600 gates addressed, the 480 visible ones start
+   --  at gate 120.
+   Gate_Offset    : constant := 120;
+   Visible_Rows   : constant := Mono_Frame.Panel_Height;
+   Addressed_Rows : constant := 600;
+
+   --  UC8279 state: whether the charge pumps are on (stock keeps the panel
+   --  powered between refreshes and never sends a second PON), whether DTM1
+   --  holds the frame on the glass, and the fast updates since the last
+   --  GC-waveform refresh.
+   Powered      : Boolean := False;
+   Old_Valid    : Boolean := False;
+   Fast_Streak  : Natural := 0;
+
    procedure Send (Data : System.Address; Count : Positive) is
       Session : ESP32S3.SPI.Session;
    begin
@@ -153,71 +167,68 @@ package body X4_Display is
       ESP32S3.SPI.Transfer (S, Data, Rx'Address, Count);
    end Send_Selected;
 
-   procedure Write_UC_New_Plane (Frame : Mono_Frame.Frame) is
+   --  Stream a 1 bpp frame into a UC8279 RAM plane (DTM1 = old, DTM2 = new):
+   --  the panel scans 600 gates with the 480 visible ones starting at 120, so
+   --  the frame is framed by white padding rows.  Invert sends the complement
+   --  of the frame (the old plane of a Clean refresh).  CS stays asserted
+   --  across the whole plane, as the OEM driver does.
+   procedure Stream_Plane
+     (Code : Byte; Frame : Mono_Frame.Frame; Invert : Boolean := False)
+   is
       Session : ESP32S3.SPI.Session;
       Offset  : Natural := 0;
+      Row     : aliased White_Row_Buffer;
    begin
-      Command (16#13#); -- DTM2: new image plane
+      Command (Code);
       ESP32S3.GPIO.Set (DC_Pin);
       ESP32S3.SPI.Acquire
         (Session, ESP32S3.SPI.SPI2, Mode => 0, Clock_Hz => 10_000_000,
          CS_Pin => CS_Pin);
       ESP32S3.SPI.Select_Device (Session, True);
-      for Row in 1 .. 120 loop
+      for R in 1 .. Gate_Offset loop
          Send_Selected (Session, White_Row'Address, Bytes_Per_Row);
       end loop;
-      while Offset < Frame_Size loop
-         declare
-            Count : constant Positive := Positive'Min (Transfer_Max, Frame_Size - Offset);
-         begin
-            Send_Selected (Session, Frame (Offset)'Address, Count);
-            Offset := Offset + Count;
-         end;
-      end loop;
+      if Invert then
+         while Offset < Frame_Size loop
+            for I in Row'Range loop
+               Row (I) := not Frame (Offset + I);
+            end loop;
+            Send_Selected (Session, Row'Address, Bytes_Per_Row);
+            Offset := Offset + Bytes_Per_Row;
+         end loop;
+      else
+         while Offset < Frame_Size loop
+            declare
+               Count : constant Positive :=
+                 Positive'Min (Transfer_Max, Frame_Size - Offset);
+            begin
+               Send_Selected (Session, Frame (Offset)'Address, Count);
+               Offset := Offset + Count;
+            end;
+         end loop;
+      end if;
+      --  The visible rows end at the last addressed gate: no trailing padding.
+      pragma Assert (Gate_Offset + Visible_Rows = Addressed_Rows);
       ESP32S3.SPI.Select_Device (Session, False);
       ESP32S3.SPI.Release (Session);
-   end Write_UC_New_Plane;
+   end Stream_Plane;
 
-   procedure Write_UC_Old_White is
+   --  Fill a RAM plane white over all addressed gates.
+   procedure Fill_Plane_White (Code : Byte) is
       Session : ESP32S3.SPI.Session;
    begin
-      Command (16#10#); -- DTM1: old image plane; full refresh starts from white
+      Command (Code);
       ESP32S3.GPIO.Set (DC_Pin);
       ESP32S3.SPI.Acquire
         (Session, ESP32S3.SPI.SPI2, Mode => 0, Clock_Hz => 10_000_000,
          CS_Pin => CS_Pin);
       ESP32S3.SPI.Select_Device (Session, True);
-      for Row in 1 .. 600 loop
+      for R in 1 .. Addressed_Rows loop
          Send_Selected (Session, White_Row'Address, Bytes_Per_Row);
       end loop;
       ESP32S3.SPI.Select_Device (Session, False);
       ESP32S3.SPI.Release (Session);
-   end Write_UC_Old_White;
-
-   procedure Write_UC_Old_Frame (Frame : Mono_Frame.Frame) is
-      Session : ESP32S3.SPI.Session;
-      Offset  : Natural := 0;
-   begin
-      Command (16#10#); -- seed DTM1 with the displayed image for future diffs
-      ESP32S3.GPIO.Set (DC_Pin);
-      ESP32S3.SPI.Acquire
-        (Session, ESP32S3.SPI.SPI2, Mode => 0, Clock_Hz => 10_000_000,
-         CS_Pin => CS_Pin);
-      ESP32S3.SPI.Select_Device (Session, True);
-      for Row in 1 .. 120 loop
-         Send_Selected (Session, White_Row'Address, Bytes_Per_Row);
-      end loop;
-      while Offset < Frame_Size loop
-         declare
-            Count : constant Positive := Positive'Min (Transfer_Max, Frame_Size - Offset);
-         begin
-            Send_Selected (Session, Frame (Offset)'Address, Count);
-            Offset := Offset + Count;
-         end;
-      end loop;
-      ESP32S3.SPI.Select_Device (Session, False);
-      ESP32S3.SPI.Release (Session);
-   end Write_UC_Old_Frame;
+   end Fill_Plane_White;
 
    procedure Wait_UC_Idle (Timeout_Ms : Positive := 15_000) is
       Deadline : constant Time := Clock + Milliseconds (Timeout_Ms);
@@ -258,26 +269,72 @@ package body X4_Display is
       Data_Byte (16#0E#);
       Command (16#E1#); -- gate scan
       Data_Byte (16#02#);
+      Powered := False;
+      Old_Valid := False;
    end Initialize_UC8279;
 
-   procedure Show_UC8279 (Frame : Mono_Frame.Frame) is
+   --  UC8279 refresh, following the FreeInk SDK's hardware-validated X4 Pro
+   --  driver (Uc8279X4Driver: displayStart / startBwRefresh / displayFinish),
+   --  which replays the stock firmware's trigger order.
+   --
+   --  Full and Clean run the OTP GC waveform; they differ in the old plane:
+   --  Full starts from white, Clean from the complement of the target so that
+   --  every pixel (the white background too) is driven through a transition,
+   --  scrubbing parked ghost charge.  Fast is the DU waveform inside a
+   --  full-screen partial window (PTIN + PTL: without the window DU scans but
+   --  develops nothing), diffing against the old plane, which after every
+   --  refresh holds the frame just shown.
+   procedure Show_UC8279 (Frame : Mono_Frame.Frame; Kind : Refresh_Kind) is
+      Fast       : constant Boolean := Kind = Fast_Update;
+      Y_Start    : constant := Gate_Offset;
+      Y_End      : constant := Gate_Offset + Visible_Rows - 1;
+      X_End      : constant := Mono_Frame.Panel_Width - 1;
       Busy_Start : Time;
    begin
-      Write_UC_New_Plane (Frame);
-      Write_UC_Old_White;
+      Stream_Plane (16#13#, Frame);  --  DTM2: new image
+      case Kind is
+         when Full        => Fill_Plane_White (16#10#);
+         when Clean       => Stream_Plane (16#10#, Frame, Invert => True);
+         when Fast_Update => null;  --  DTM1 already holds the shown frame
+      end case;
 
-      Command (16#50#); -- CDI for full B/W refresh
-      Data_Byte (16#97#);
+      Command (16#50#); -- CDI: 0x97 for GC, 0xD7 for the windowed DU
+      Data_Byte (if Fast then 16#D7# else 16#97#);
       Command (16#E0#); -- CCSET
       Data_Byte (16#02#);
-      Command (16#E5#); -- forced temperature for GC/full
-      Data_Byte (16#1E#);
-      Command (16#04#); -- power on, wait for idle
-      Wait_UC_Idle;
-      Command (16#00#); -- after PON, re-latch OTP settings (REG=0)
+      Command (16#E5#); -- forced temperature: selects GC (0x1E) or DU (0x5A)
+      Data_Byte (if Fast then 16#5A# else 16#1E#);
+      if Fast then
+         Command (16#03#); -- PFS, as stock re-sends it for a partial
+         Data_Byte (16#20#);
+         Command (16#E1#); -- gate scan
+         Data_Byte (16#02#);
+      end if;
+
+      if not Powered then
+         Command (16#04#); -- power on, wait for idle
+         Wait_UC_Idle;
+         Powered := True;
+      end if;
+
+      if Fast then
+         Command (16#91#); -- PTIN
+         Command (16#90#); -- PTL: the whole visible area, in gate coordinates
+         Data_Byte (16#00#);
+         Data_Byte (16#00#);
+         Data_Byte (Byte (X_End / 256));
+         Data_Byte (Byte (X_End mod 256) or 16#07#);
+         Data_Byte (Byte (Y_Start / 256));
+         Data_Byte (Byte (Y_Start mod 256));
+         Data_Byte (Byte (Y_End / 256));
+         Data_Byte (Byte (Y_End mod 256));
+         Data_Byte (16#01#);
+      end if;
+
+      Command (16#00#); -- after PON, re-latch the panel setting with REG=0 (OTP)
       Data_Byte (16#17#);
       Data_Byte (16#4D#);
-      Command (16#12#); -- display refresh (GC from white)
+      Command (16#12#); -- display refresh
 
       --  The UC8279 asserts BUSY_N low after starting. Wait for that edge,
       --  then wait until it returns high when the waveform is complete.
@@ -288,7 +345,12 @@ package body X4_Display is
          delay until Clock + Milliseconds (1);
       end loop;
       Wait_UC_Idle;
-      Write_UC_Old_Frame (Frame);
+      if Fast then
+         Command (16#92#); -- PTOUT
+      end if;
+
+      --  The old plane becomes the frame now on the glass, for the next DU.
+      Stream_Plane (16#10#, Frame);
    end Show_UC8279;
 
    procedure Initialize is
@@ -366,11 +428,25 @@ package body X4_Display is
       end if;
    end Initialize;
 
-   procedure Show (Frame : Mono_Frame.Frame) is
+   procedure Show (Frame : Mono_Frame.Frame; Kind : Refresh_Kind := Fast_Update) is
       Offset : Natural := 0;
+      Mode   : Refresh_Kind := Kind;
+      T0     : constant Time := Clock;
    begin
       if Controller_Variant = 16#68# then
-         Show_UC8279 (Frame);
+         if Mode = Fast_Update then
+            if not Old_Valid then
+               Mode := Full;
+            elsif Fast_Streak >= Fast_Updates_Per_Clean then
+               Mode := Clean;
+            end if;
+         end if;
+         Show_UC8279 (Frame, Mode);
+         Old_Valid := True;
+         Fast_Streak := (if Mode = Fast_Update then Fast_Streak + 1 else 0);
+         Put ("[x4] " & Mode'Image & " refresh in ");
+         Put (Integer (To_Duration (Clock - T0) * 1000.0));
+         Put_Line (" ms");
          return;
       end if;
 

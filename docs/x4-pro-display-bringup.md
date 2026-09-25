@@ -37,7 +37,7 @@ For UC81xx parts, VER byte 2 is LUT_VER; `0x68` identifies this unit as a **UC82
 
 ## UC8279 X4 Pro monochrome refresh used by sxos
 
-The X4 Pro UC8279 addresses 800×600 gates, with the 480 visible rows beginning at gate offset 120. For the initial B/W full refresh, the driver follows the validated X4 Pro sequence:
+The X4 Pro UC8279 addresses 800×600 gates, with the 480 visible rows beginning at gate offset 120. For a B/W full refresh, the driver follows the validated X4 Pro sequence:
 
 - Reset the panel; set PSR `0x37, 0x4D`, TRES `800×600`, GSST `0`, PFS `0x20`, PLL `0x0E`, and gate scan `0x02`.
 - Write DTM2 (`0x13`) with 120 white padding rows followed by the 480-row framebuffer.
@@ -46,7 +46,18 @@ The X4 Pro UC8279 addresses 800×600 gates, with the 480 visible rows beginning 
 - After PON, write PSR `0x17, 0x4D` (REG cleared to select OTP), issue display refresh (`0x12`), and wait for BUSY_N to go low then return high.
 - Copy the visible frame to DTM1 as the old-plane baseline.
 
-The B/W framebuffer format is 1 bpp, MSB-first, `0xFF` white and zero bits black. The screen driver and rendering code are in `src/x4_display.adb`.
+The panel stays powered after the first PON; later refreshes skip PON, as the stock firmware does.
+
+### Clean and fast (DU) refresh — confirmed on the glass
+
+Both follow the FreeInk SDK `Uc8279X4Driver` (`displayStart` / `startBwRefresh` / `displayFinish`):
+
+- **Clean** is the full GC sequence above with DTM1 seeded with the **inverse** of the new frame instead of white, so every pixel — the white background too — goes through a transition and parked ghost charge is scrubbed.
+- **Fast (DU)**: write only DTM2 (DTM1 already holds the shown frame); CDI `0xD7`, CCSET `0x02`, TSSET `0x5A` (selects DU), PFS `0x20`, gate scan `0x02`; PON if needed; **PTIN (`0x91`) and a PTL (`0x90`) window** `x 0..799, gates 120..599, 0x01`; PSR `0x17, 0x4D`; DRF; wait; **PTOUT (`0x92`)**; copy the frame to DTM1. Without the PTL window the DU waveform scans but develops nothing (FreeInk's first field unit).
+
+Measured on this `LUT_VER=0x68` unit, including the 10 MHz SPI plane writes: Full 1.55 s, Clean 1.51 s, Fast 0.60 s with no flashing. Ten fast Library updates in a row left no visible ghosting.
+
+The B/W framebuffer format is 1 bpp, MSB-first, `0xFF` white and zero bits black. The screen driver is `src/device/x4_display.adb`.
 
 ## Portrait orientation
 

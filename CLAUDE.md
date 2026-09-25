@@ -91,7 +91,10 @@ fragmented chain.
 ## Hardware gotchas
 
 - GPIO1 is the master peripheral rail — raise it before panel, SD or touch.
-- A UC8279 refresh is a full refresh (seconds, with flashing) until M3 lands.
+- `X4_Display.Show` defaults to a fast (DU, ~0.6 s) update and upgrades it
+  itself: to `Full` when nothing is known to be on the glass, to `Clean`
+  after `Fast_Updates_Per_Clean` fast updates in a row. Ask for `Full` or
+  `Clean` only for a deliberate clean screen (e.g. opening a book).
 - The SD card is **read-only** by design; persistent state goes to internal
   flash (see `docs/PLAN.md`).
 - The CW2017 gauge reads 0 % until the X4 Pro battery profile is loaded;

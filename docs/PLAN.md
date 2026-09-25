@@ -104,7 +104,7 @@ problems are fixed there, not by flashing.
 | M0 ✓ | Verify the rotation and touch-mapping fixes on the device; commit that work; remove machine-specific paths; add `CLAUDE.md`; map 8 MB PSRAM | — |
 | M1 ✓ | Copy the text engine; `Mono_Frame` (1 bpp portrait); host preview harness | text engine decoupled from `Canvas`/`Frame_Buffer` |
 | M2 ✓ | FAT32 split into pure parser + `Card`; open/read files; load TTF from `/Fonts`; Library rendered in TrueType; `Gauge` + status bar | SD read throughput for a ~1 MB font |
-| M3 | **UC8279 fast/partial refresh** for page turns; full refresh every N turns | **highest — register/waveform sequence must be taken from FreeInk/CrossPoint and confirmed on the device** |
+| M3 ✓ | **UC8279 fast/partial refresh** for page turns; full refresh every N turns | **highest — register/waveform sequence must be taken from FreeInk/CrossPoint and confirmed on the device** |
 | M4 | Book sources: TXT stream; EPUB via ZIP directory + Inflate + OPF spine + XHTML → text | Inflate is the largest new component |
 | M5 | Reader: pagination, page turns, overlay, back to Library | layout speed on long chapters |
 | M6 | `Store`: positions and settings in internal flash | ROM flash calls from the bare runtime (cache/interrupt handling) |
@@ -116,23 +116,32 @@ parser part), M4 and M5 can mostly be developed against the host preview.
 
 ## Status and next steps
 
-M0–M2 are done and confirmed on the glass (see the table): the device boots
+M0–M3 are done and confirmed on the glass (see the table): the device boots
 into the Library, rendered with DejaVu Serif from the card, with a working
-battery gauge; the user found the Library's type size good. What remains
-from the early milestones is speed: every screen change is still a
-multi-second full refresh.
+battery gauge; the user found the Library's type size good.
 
-**M3 — fast refresh.** Start from the FreeInk SDK (github.com/Free-Ink/
-freeink-sdk, MIT): `libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.{h,cpp}`
-is the X4 Pro UC8279 driver, with a hardware-validated **DU partial refresh**
-(it needs a PTL partial window; see its `displayStart`), the fast-refresh
-`TSSET`/`CDI` values, and the resync (full refresh) policy. Its validation
-was on a `LUT_VER=0x02` unit; this one reports `0x68`, which the driver
-routes the same way. `docs/xteink-x4pro-support.md` there has the evidence.
-The same driver also has a 4-level grayscale (AA) path with external LUTs and
-inverted planes — out of scope for now, but the natural next step after DU.
-`X4_Display.Show` already keeps DTM1 as the old plane after each refresh
-(`Write_UC_Old_Frame`), which is what a differential DU update drives from.
+**M3 (fast refresh)** is ported from the FreeInk SDK's X4 Pro UC8279 driver
+(github.com/Free-Ink/freeink-sdk, MIT,
+`libs/display/FreeInkDisplay/src/driver/Uc8279X4Driver.cpp`). Measured on
+this unit (`LUT_VER=0x68`):
+
+| Refresh | Old plane (DTM1) | Waveform | Time |
+|---|---|---|---|
+| Full | white | GC (TSSET `0x1E`, CDI `0x97`) | 1.55 s, flashes |
+| Clean | inverse of the new frame | GC | 1.51 s, flashes |
+| Fast | the frame on the glass | DU (TSSET `0x5A`, CDI `0xD7`) in a full-screen PTIN/PTL window | 0.60 s, no flash |
+
+`X4_Display.Show` does a Fast update by default, a Full one when nothing is
+known to be on the glass, and a Clean one after 10 Fast updates in a row
+(`Fast_Updates_Per_Clean`). Ten Library selection changes showed no visible
+ghosting. Possible later gains: a faster SPI clock (FreeInk uses 16 MHz;
+sxos 10 MHz — each 60 KB plane takes ~50 ms), and deferring the DTM1
+re-write after a refresh until the next one. FreeInk also has a 4-level
+grayscale (AA) path with external LUTs and inverted planes — out of scope
+for now, but the natural next display step.
+
+**Next: M4 (book sources)** — TXT stream, then EPUB (ZIP directory, Inflate,
+OPF spine, XHTML → paragraph stream), developed against the host preview.
 
 Useful facts for later milestones:
 
@@ -147,8 +156,8 @@ Useful facts for later milestones:
 
 ## Open questions
 
-- UC8279 fast-refresh sequence and how many fast refreshes can be done before
-  ghosting requires a full refresh.
+- Whether 10 fast updates between Clean refreshes is right for page turns of
+  full-page text (tuned only on the Library so far).
 - EPUB edge cases to handle in v1: `<br>`, `<p>`/`<div>`/headings as
   paragraph breaks, `&nbsp;` and numeric entities, images skipped, CSS
   ignored. DRM-protected files show an error.

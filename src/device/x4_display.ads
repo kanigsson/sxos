@@ -4,9 +4,20 @@ with Mono_Frame;
 --  production batches).  Drawing happens in a Mono_Frame; this package only
 --  talks to the controller.
 package X4_Display is
+   --  Full:        GC waveform from white; seconds, with flashing.
+   --  Clean:       GC waveform from the inverse of the new frame: every pixel
+   --                is driven, which clears accumulated ghosting.
+   --  Fast_Update: DU waveform diffing against the frame on the glass; no
+   --                flashing, but leaves ghosting that builds up.
+   type Refresh_Kind is (Full, Clean, Fast_Update);
+
+   --  A Fast_Update becomes a Clean after this many fast updates in a row,
+   --  and a Full when nothing is known to be on the glass yet.
+   Fast_Updates_Per_Clean : constant := 10;
+
    --  Raise the peripheral rail, probe the controller and initialise it.
    procedure Initialize;
 
-   --  Put Frame on the glass with one full refresh (seconds, with flashing).
-   procedure Show (Frame : Mono_Frame.Frame);
+   --  Put Frame on the glass.  The SSD1677 path always does a full refresh.
+   procedure Show (Frame : Mono_Frame.Frame; Kind : Refresh_Kind := Fast_Update);
 end X4_Display;

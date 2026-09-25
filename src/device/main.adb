@@ -1,7 +1,7 @@
 --  sxos: the Library screen.  Mount the card, list /Books, load a font face
 --  from /Fonts into PSRAM, and let the user move a selection with the nav
---  buttons or pick a book by touch.  Every change is a full UC8279 refresh
---  for now (milestone M3 brings fast refresh).
+--  buttons or pick a book by touch.  The first screen is a full refresh;
+--  selection changes are fast (DU) updates.
 with Ada.Real_Time; use Ada.Real_Time;
 with Interfaces; use Interfaces;
 with System.BB.CPU_Primitives.Multiprocessors;
