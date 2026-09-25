@@ -16,6 +16,7 @@ is
      (Input  : String;
       Output : out String;
       Last   : out Natural)
-     with Pre  => Output'First = 1 and then Output'Last < Natural'Last,
+     with Pre  => Output'First = 1
+                  and then Output'Last in 0 .. Natural'Last - 1,
           Post => Last <= Output'Last;
 end Xhtml_Text;

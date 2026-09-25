@@ -26,6 +26,7 @@ is
      return Boolean
      with Pre => First <= Last and then Last <= Text'Last
                  and then First >= Text'First
+                 and then List'First = 1 and then List'Last >= 1
    is
       Len : constant Positive := Last - First + 1;
       Ok  : Boolean;
@@ -61,17 +62,23 @@ is
 
    function Guess (Text : String) return Language is
       Last  : constant Natural :=
-        (if Text'Length > Sample then Text'First + Sample - 1 else Text'Last);
+        (if Text'Length = 0 then 0
+         elsif Text'Length > Sample then Text'First + Sample - 1
+         else Text'Last);
       Hits  : array (Known) of Natural := (others => 0);
-      P     : Natural := Text'First;
+      P     : Natural := (if Text'Length > 0 then Text'First else 1);
       Start : Positive;
       Best, Second : Natural := 0;
       Winner : Language := Unknown;
    begin
       while P <= Last loop
+         pragma Loop_Invariant (P >= Text'First and then Last <= Text'Last);
+         pragma Loop_Variant (Increases => P);
          if Word_Byte (Text (P)) then
             Start := P;
             while P < Last and then Word_Byte (Text (P + 1)) loop
+               pragma Loop_Invariant (P in Start .. Last - 1);
+               pragma Loop_Variant (Increases => P);
                P := P + 1;
             end loop;
             if P - Start < 8 then
@@ -106,7 +113,7 @@ is
             Second := Hits (L);
          end if;
       end loop;
-      if Best >= Min_Hits and then Best >= 2 * Second then
+      if Best >= Min_Hits and then Second <= Best / 2 then
          return Winner;
       end if;
       return Unknown;

@@ -32,16 +32,28 @@ is
       Tag := (First => 1, Last => 0);
       Found := False;
       while P <= Doc'Last and then P >= Doc'First loop
+         pragma Loop_Invariant (P >= Pos and then not Found);
+         pragma Loop_Variant (Increases => P);
          if Doc (P) = '<' then
             if P <= Doc'Last - 3 and then Doc (P + 1 .. P + 3) = "!--" then
-               --  Skip the comment to its "-->".
-               P := P + 4;
-               while P <= Doc'Last - 2 and then Doc (P .. P + 2) /= "-->" loop
-                  P := P + 1;
-               end loop;
-               P := (if P <= Doc'Last - 2 then P + 3 else Doc'Last + 1);
-               exit when P > Doc'Last;
+               --  Skip the comment to its "-->", searching from just after
+               --  the "<!--".  Q + 1 is where the search is: stepping from
+               --  the comment opener's last byte keeps every index in Doc.
+               declare
+                  Q : Natural := P + 3;
+               begin
+                  while Q < Doc'Last - 2 and then Doc (Q + 1 .. Q + 3) /= "-->"
+                  loop
+                     pragma Loop_Invariant (Q in P + 3 .. Doc'Last - 3);
+                     pragma Loop_Variant (Increases => Q);
+                     Q := Q + 1;
+                  end loop;
+                  --  Unterminated, or the "-->" ends Doc: nothing follows.
+                  exit when Q >= Doc'Last - 3;
+                  P := Q + 4;
+               end;
             else
+               exit when P = Doc'Last;   --  unterminated tag
                for Q in P + 1 .. Doc'Last loop
                   if Doc (Q) = '>' then
                      Tag := (First => P + 1, Last => Q - 1);
@@ -57,13 +69,18 @@ is
             P := P + 1;
          end if;
       end loop;
-      Pos := (if Doc'Last < Positive'Last then Doc'Last + 1 else Doc'Last);
+      if Doc'Last in 0 .. Positive'Last - 1 then
+         Pos := Doc'Last + 1;
+      elsif Doc'Last = Positive'Last then
+         Pos := Doc'Last;
+      end if;
    end Next_Tag;
 
    --  Tag's name (from First, which follows '<' or '</'), without a prefix.
    function Local_Name_Is
      (Doc : String; First, Last : Positive; Name : String) return Boolean
      with Pre => First >= Doc'First and then Last <= Doc'Last
+                 and then Last < Positive'Last
    is
       E : Natural := First;
       S : Positive := First;
@@ -71,6 +88,8 @@ is
       while E <= Last and then not Is_Space (Doc (E))
         and then Doc (E) /= '/' and then Doc (E) /= '>'
       loop
+         pragma Loop_Invariant (E in First .. Last and then S in First .. E);
+         pragma Loop_Variant (Increases => E);
          if Doc (E) = ':' and then E < Last then
             S := E + 1;
          end if;
@@ -104,6 +123,9 @@ is
       E := S;
       while E <= Tag.Last and then not Is_Space (Doc (E)) and then Doc (E) /= '/'
       loop
+         pragma Loop_Invariant
+           (E in Tag.First .. Tag.Last and then S in Tag.First .. E);
+         pragma Loop_Variant (Increases => E);
          if Doc (E) = ':' and then E < Tag.Last then
             S := E + 1;
          end if;
@@ -145,10 +167,17 @@ is
       end if;
       --  Skip the element name.
       while P <= Tag.Last and then not Is_Space (Doc (P)) loop
+         pragma Loop_Invariant (P in Tag.First .. Tag.Last);
+         pragma Loop_Variant (Increases => P);
          P := P + 1;
       end loop;
       loop
+         pragma Loop_Invariant (P in Tag.First .. Tag.Last + 1);
+         pragma Loop_Invariant (not Found);
+         pragma Loop_Variant (Increases => P);
          while P <= Tag.Last and then Is_Space (Doc (P)) loop
+            pragma Loop_Invariant (P in P'Loop_Entry .. Tag.Last);
+            pragma Loop_Variant (Increases => P);
             P := P + 1;
          end loop;
          exit when P > Tag.Last;
@@ -156,15 +185,21 @@ is
          while P <= Tag.Last and then Doc (P) /= '='
            and then not Is_Space (Doc (P))
          loop
+            pragma Loop_Invariant (P in Name_First .. Tag.Last);
+            pragma Loop_Variant (Increases => P);
             P := P + 1;
          end loop;
          Name_Last := P - 1;
          while P <= Tag.Last and then Is_Space (Doc (P)) loop
+            pragma Loop_Invariant (P in Name_First .. Tag.Last);
+            pragma Loop_Variant (Increases => P);
             P := P + 1;
          end loop;
          exit when P > Tag.Last or else Doc (P) /= '=';
          P := P + 1;
          while P <= Tag.Last and then Is_Space (Doc (P)) loop
+            pragma Loop_Invariant (P in Name_First .. Tag.Last);
+            pragma Loop_Variant (Increases => P);
             P := P + 1;
          end loop;
          exit when P > Tag.Last
@@ -175,6 +210,8 @@ is
             V_First : constant Positive := P;
          begin
             while P <= Tag.Last and then Doc (P) /= Quote loop
+               pragma Loop_Invariant (P in V_First .. Tag.Last);
+               pragma Loop_Variant (Increases => P);
                P := P + 1;
             end loop;
             if Name_Last >= Name_First then

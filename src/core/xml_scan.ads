@@ -30,15 +30,22 @@ is
       Pos   : in out Positive;
       Tag   : out Span;
       Found : out Boolean)
-     with Post => (if Found then Within (Doc, Tag));
+     with Always_Terminates,
+          Post => (if Found
+                   then Within (Doc, Tag) and then Tag.Last < Positive'Last
+                        and then Pos > Pos'Old);
+
+   --  The subprograms below take a Tag as Next_Tag returns it: within Doc,
+   --  and never ending at the last possible index, so a scan can always step
+   --  one past it.
 
    --  Is Tag a start (or empty-element) tag named Name?
    function Is_Start (Doc : String; Tag : Span; Name : String) return Boolean
-     with Pre => Within (Doc, Tag);
+     with Pre => Within (Doc, Tag) and then Tag.Last < Positive'Last;
 
    --  Is Tag an end tag named Name?
    function Is_End (Doc : String; Tag : Span; Name : String) return Boolean
-     with Pre => Within (Doc, Tag);
+     with Pre => Within (Doc, Tag) and then Tag.Last < Positive'Last;
 
    --  The local name (prefix dropped) of Tag, and whether it is an end tag.
    --  Name is empty for declarations, comments and processing instructions.
@@ -47,7 +54,8 @@ is
       Tag     : Span;
       Name    : out Span;
       Closing : out Boolean)
-     with Pre  => Within (Doc, Tag),
+     with Always_Terminates,
+          Pre  => Within (Doc, Tag) and then Tag.Last < Positive'Last,
           Post => Within (Doc, Name);
 
    --  The value of attribute Name (prefix ignored) of a start tag, without
@@ -58,7 +66,8 @@ is
       Name  : String;
       Value : out Span;
       Found : out Boolean)
-     with Pre  => Within (Doc, Tag),
+     with Always_Terminates,
+          Pre  => Within (Doc, Tag) and then Tag.Last < Positive'Last,
           Post => Within (Doc, Value);
 
    --  ASCII-case-insensitive equality.

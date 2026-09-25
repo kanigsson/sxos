@@ -23,12 +23,18 @@ is
    --  Is Input well-formed UTF-8 (no overlongs, surrogates or values past
    --  U+10FFFF)?
    function Is_UTF8 (Input : Bytes.Byte_Array) return Boolean is
-      P    : Natural := Input'First;
+      P    : Natural;
       B    : Bytes.Byte;
       More : Natural;
       Lo, Hi : Bytes.Byte;
    begin
+      if Input'Length = 0 then
+         return True;
+      end if;
+      P := Input'First;
       while P <= Input'Last loop
+         pragma Loop_Invariant (P >= Input'First);
+         pragma Loop_Variant (Increases => P);
          B := Input (P);
          Lo := 16#80#;
          Hi := 16#BF#;
@@ -72,8 +78,13 @@ is
    function Output_Bound (Input : Bytes.Byte_Array) return Natural is
       N : Natural := 0;
    begin
-      if Is_UTF8 (Input) then
-         return Input'Length;
+      if Input'Length = 0 then
+         return 0;
+      elsif Is_UTF8 (Input) then
+         --  Input'Length, except for the one array too long to count in a
+         --  Natural.
+         return (if Input'Last - Input'First < Natural'Last
+                 then Input'Last - Input'First + 1 else Natural'Last);
       end if;
       for B of Input loop
          exit when N > Natural'Last - 3;
@@ -99,7 +110,7 @@ is
       Blank_Mode    : Boolean;
       Pending_Space : Boolean := False;
       Pending_Break : Boolean := False;
-      P             : Natural := Input'First;
+      P             : Natural;
       B             : Bytes.Byte;
 
       procedure Emit_Separator is
@@ -120,6 +131,10 @@ is
    begin
       Output := (others => ' ');
       Last := 0;
+      if Input'Length = 0 then
+         return;
+      end if;
+      P := Input'First;
 
       --  Count blank, text and long lines to pick the paragraph convention.
       for C of Input loop
@@ -146,16 +161,20 @@ is
       end loop;
       Blank_Mode := Blanks > 0 and then Long_Lines < Text_Lines / 10;
 
-      --  Skip a byte-order mark.
+      --  Skip a byte-order mark (a file that is nothing else has no text).
       if Valid and then Input'Length >= 3
         and then Input (P) = 16#EF# and then Input (P + 1) = 16#BB#
         and then Input (P + 2) = 16#BF#
       then
+         if Input'Last - P = 2 then
+            return;
+         end if;
          P := P + 3;
       end if;
 
       Line_Empty := True;
       while P <= Input'Last and then Last < Output'Last loop
+         pragma Loop_Invariant (P >= Input'First and then Last <= Output'Last);
          B := Input (P);
          if B = 10 then
             if Line_Empty then
@@ -211,6 +230,8 @@ is
       while E > From
         and then Character'Pos (Text (E + 1)) in 16#80# .. 16#BF#
       loop
+         pragma Loop_Invariant (E in From .. Soft);
+         pragma Loop_Variant (Decreases => E);
          E := E - 1;
       end loop;
       return E;

@@ -165,7 +165,8 @@ is
       Code  : out UTF8.Code_Point;
       Next  : out Positive;
       Ok    : out Boolean)
-     with Pre => P in Input'Range
+     with Pre  => P in Input'Range,
+          Post => (if Ok then Next > P)
    is
       Semi  : Natural := 0;
       V     : UTF8.Code_Point := 0;
@@ -175,6 +176,9 @@ is
       Code := 0;
       Next := P;
       Ok := False;
+      if P = Input'Last then
+         return;   --  a lone '&' at the end
+      end if;
       for K in P + 1 .. (if Input'Last - P > Max_Entity + 1
                          then P + Max_Entity + 1 else Input'Last)
       loop
@@ -257,7 +261,7 @@ is
          return False;
       end if;
       for K in 1 .. Len loop
-         if Lower (Doc (Name.First + K - 1)) /= N (K) then
+         if Lower (Doc (Name.First + (K - 1))) /= N (K) then
             return False;
          end if;
       end loop;
@@ -340,7 +344,10 @@ is
       if Input'Length = 0 then
          return;
       end if;
+      --  A step past the last byte ends the loop instead: P may be at
+      --  Positive'Last.
       while P <= Input'Last and then Last < Output'Last loop
+         pragma Loop_Invariant (P >= Input'First and then Last <= Output'Last);
          if Input (P) = '<' then
             Next_Tag (Input, P, Tag, Found);
             exit when not Found;
@@ -360,10 +367,13 @@ is
                Pending_Break := True;
             end if;
             --  Next_Tag moved P past the tag.
+            exit when P = Positive'Last;
          elsif Skip_Depth > 0 then
+            exit when P = Input'Last;
             P := P + 1;
          elsif Is_Space (Input (P)) then
             Pending_Space := True;
+            exit when P = Input'Last;
             P := P + 1;
          elsif Input (P) = '&' then
             Entity_At (Input, P, Code, Next, Ok);
@@ -373,12 +383,14 @@ is
                   UTF8.Append (Output, Last, Code);
                end if;
                P := Next;
+               exit when P = Positive'Last;
             else
                Emit_Separator;
                if Last < Output'Last then
                   Last := Last + 1;
                   Output (Last) := '&';
                end if;
+               exit when P = Input'Last;
                P := P + 1;
             end if;
          else
@@ -394,16 +406,19 @@ is
                  and then Input (E + 1) /= '&'
                  and then not Is_Space (Input (E + 1))
                loop
+                  pragma Loop_Invariant
+                    (E in P .. Input'Last - 1
+                     and then (E = P or else E - P <= Output'Last - Last - 1));
                   E := E + 1;
                end loop;
                if Last < Output'Last then
                   Output (Last + 1 .. Last + 1 + (E - P)) := Input (P .. E);
                   Last := Last + 1 + (E - P);
                end if;
+               exit when E = Input'Last;
                P := E + 1;
             end;
          end if;
-         exit when P = Positive'Last;
       end loop;
       --  No trailing space.
       if Last > 0 and then Output (Last) = ' ' then

@@ -57,7 +57,8 @@ is
 
    --  The trie size Text needs (an upper bound; exact when the patterns are
    --  sorted, as the hyph-utf8 files are).
-   procedure Measure (Text : String; Nodes, Pool_Size : out Natural);
+   procedure Measure (Text : String; Nodes, Pool_Size : out Natural)
+     with Pre => Text'Last < Positive'Last;
 
    --  Fill T, allocated with Measure's sizes, from Text.  Ok is False if
    --  Text holds no pattern or more than 255 distinct letters.
@@ -65,7 +66,8 @@ is
      (Text                : String;
       Left_Min, Right_Min : Positive;
       T                   : in out Trie;
-      Ok                  : out Boolean);
+      Ok                  : out Boolean)
+     with Pre => Text'Last < Positive'Last;
 
    type Code_Array is array (Positive range <>) of UTF8.Code_Point;
    type Break_Array is array (Positive range <>) of Boolean;

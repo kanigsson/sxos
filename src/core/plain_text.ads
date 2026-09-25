@@ -20,7 +20,8 @@ is
      (Input  : Bytes.Byte_Array;
       Output : out String;
       Last   : out Natural)
-     with Pre  => Output'First = 1 and then Output'Last < Natural'Last,
+     with Pre  => Output'First = 1
+                  and then Output'Last in 0 .. Natural'Last - 1,
           Post => Last <= Output'Last;
 
    --  Where the section starting at Text (From) should end, for a section

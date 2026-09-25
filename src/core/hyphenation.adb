@@ -11,12 +11,18 @@ is
 
    --  Skip white space and '%' comments from P; Found is False at the end.
    procedure Skip_Blanks (Text : String; P : in out Positive; Found : out Boolean)
+     with Pre  => P >= Text'First,
+          Post => P >= P'Old
+                  and then (if Found then P in Text'Range
+                                          and then not Is_Blank (Text (P)))
    is
    begin
       Found := False;
       while P <= Text'Last loop
+         pragma Loop_Invariant (P >= P'Loop_Entry);
          if Text (P) = '%' then
             while P <= Text'Last and then Text (P) /= ASCII.LF loop
+               pragma Loop_Invariant (P >= P'Loop_Entry);
                exit when P = Positive'Last;
                P := P + 1;
             end loop;
@@ -41,7 +47,9 @@ is
       Dig   : out Digit_Array;
       Count : out Natural;
       Ok    : out Boolean)
-     with Pre => P in Text'Range
+     with Pre  => P in Text'Range and then Text'Last < Positive'Last
+                  and then not Is_Blank (Text (P)),
+          Post => P > P'Old and then Count <= Max_Pattern
    is
       C : UTF8.Code_Point;
    begin
@@ -50,6 +58,9 @@ is
       Count := 0;
       Ok := True;
       while P <= Text'Last and then not Is_Blank (Text (P)) loop
+         pragma Loop_Invariant
+           (P in Text'Range and then P >= P'Loop_Entry
+            and then Count <= Max_Pattern);
          UTF8.Next_Code (Text, P, C);
          if C in Character'Pos ('0') .. Character'Pos ('9') then
             Dig (Count) := Unsigned_8 (C - Character'Pos ('0'));
@@ -80,15 +91,24 @@ is
          return;
       end if;
       loop
+         pragma Loop_Invariant
+           (P >= Text'First and then Prev_Count <= Max_Pattern);
          Skip_Blanks (Text, P, Found);
          exit when not Found;
+         --  Only the letters matter for the size: the digits are Build's.
+         pragma Warnings
+           (GNATprove, Off, """Dig"" is set by ""Next_Pattern"" but not used*",
+            Reason => "Measure sizes the trie from the letters alone");
          Next_Pattern (Text, P, Codes, Dig, Count, Ok);
+         pragma Warnings
+           (GNATprove, On, """Dig"" is set by ""Next_Pattern"" but not used*");
          if Ok and then Count > 0 then
             --  Prefixes shared with the previous pattern need no new node.
             Same := 0;
             while Same < Count and then Same < Prev_Count
               and then Codes (Same + 1) = Prev (Same + 1)
             loop
+               pragma Loop_Invariant (Same < Count and then Same < Prev_Count);
                Same := Same + 1;
             end loop;
             if Nodes < Natural'Last - Max_Pattern
@@ -120,6 +140,7 @@ is
 
    --  C's letter in T, added to the alphabet if new (0 when it is full).
    procedure Add_Letter (T : in out Trie; C : UTF8.Code_Point; L : out Letter)
+     with Post => T.Pool_Used = T.Pool_Used'Old
    is
    begin
       L := Letter_Of (T, C);
@@ -150,9 +171,14 @@ is
       end if;
       C := T.Child (N);
       while C in 1 .. T.Nodes loop
+         pragma Loop_Variant (Decreases => C);
          if T.Node_Letter (C) = L then
             return C;
          end if;
+         --  A node is always made after the siblings it links to, so the
+         --  list runs to lower numbers; anything else is not a trie Build
+         --  made, and the search stops rather than follow a cycle.
+         exit when T.Sibling (C) >= C;
          C := T.Sibling (C);
       end loop;
       return 0;
@@ -161,6 +187,7 @@ is
    --  The child of N for L, made if there is none (0 when T is full).
    procedure Make_Child
      (T : in out Trie; N : Natural; L : Letter; Result : out Natural)
+     with Post => T.Pool_Used = T.Pool_Used'Old
    is
    begin
       Result := Child_Of (T, N, L);
@@ -197,7 +224,7 @@ is
       Good    : Boolean;
       N       : Natural;
       L       : Letter;
-      Added   : Natural := 0;
+      Added   : Boolean := False;   --  a pattern went in
    begin
       --  Loops, not aggregates: T is large and on the heap.
       T.Left_Min := Left_Min;
@@ -218,6 +245,8 @@ is
       end if;
 
       loop
+         pragma Loop_Invariant
+           (P >= Text'First and then T.Pool_Used <= T.Pool_Size);
          Skip_Blanks (Text, P, Found);
          exit when not Found;
          Next_Pattern (Text, P, Codes, Dig, Count, Good);
@@ -227,6 +256,7 @@ is
          then
             N := 0;
             for I in 1 .. Count loop
+               pragma Loop_Invariant (T.Pool_Used = T.Pool_Used'Loop_Entry);
                Add_Letter (T, Codes (I), L);
                if L = 0 then
                   return;   --  more than 255 letters
@@ -240,12 +270,12 @@ is
                   T.Pool (T.Pool_Used + 1 + I) := Dig (I);
                end loop;
                T.Pool_Used := T.Pool_Used + Count + 1;
-               Added := Added + 1;
+               Added := True;
             end if;
          end if;
          exit when P > Text'Last;
       end loop;
-      Ok := Added > 0;
+      Ok := Added;
    end Build;
 
    procedure Hyphenate
@@ -264,7 +294,7 @@ is
       At_V : Natural;
    begin
       Breaks := (others => False);
-      if N < T.Left_Min + T.Right_Min then
+      if N < T.Left_Min or else N - T.Left_Min < T.Right_Min then
          return;
       end if;
       Pad (0) := Dot;
@@ -280,11 +310,12 @@ is
          J := S;
          Node := Child_Of (T, 0, Pad (S));
          while Node in 1 .. T.Nodes loop
+            pragma Loop_Invariant (J in S .. N + 1);
             At_V := T.Value (Node);
             if At_V > 0 then
                --  A pattern of J - S + 1 letters matches at S.
                for D in 0 .. J - S + 1 loop
-                  exit when At_V + D > T.Pool_Size;
+                  exit when D > T.Pool_Size - At_V;
                   if T.Pool (At_V + D) > Val (S + D) then
                      Val (S + D) := T.Pool (At_V + D);
                   end if;

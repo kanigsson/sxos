@@ -2,7 +2,8 @@ package body Opf
   with SPARK_Mode => On
 is
    function Rootfile (Container : String) return Span is
-      Pos   : Positive := Container'First;
+      Pos   : Positive :=
+        (if Container'Length > 0 then Container'First else 1);
       Tag   : Span;
       Value : Span;
       Found : Boolean;
@@ -11,6 +12,7 @@ is
          return (First => 1, Last => 0);
       end if;
       loop
+         pragma Loop_Variant (Increases => Pos);
          Next_Tag (Container, Pos, Tag, Found);
          exit when not Found;
          if Is_Start (Container, Tag, "rootfile") then
@@ -33,6 +35,8 @@ is
          return Result;
       end if;
       loop
+         pragma Loop_Invariant (Pos >= Doc'First);
+         pragma Loop_Variant (Increases => Pos);
          Next_Tag (Doc, Pos, Tag, Found);
          exit when not Found;
          if Is_Start (Doc, Tag, "language") and then Pos <= Doc'Last then
@@ -40,16 +44,31 @@ is
             Result := (First => Pos, Last => Pos - 1);
             while Result.Last < Doc'Last and then Doc (Result.Last + 1) /= '<'
             loop
+               pragma Loop_Invariant
+                 (Result.First = Pos
+                  and then Result.Last in Pos - 1 .. Doc'Last);
+               pragma Loop_Variant (Increases => Result.Last);
                Result.Last := Result.Last + 1;
             end loop;
-            while Result.First <= Result.Last
+            --  Leading blanks: a last blank left alone here goes with the
+            --  trailing ones below, and stopping short of Result.Last keeps
+            --  the step in range.
+            while Result.First < Result.Last
               and then Doc (Result.First) <= ' '
             loop
+               pragma Loop_Invariant
+                 (Result.First in Pos .. Result.Last
+                  and then Result.Last <= Doc'Last);
+               pragma Loop_Variant (Increases => Result.First);
                Result.First := Result.First + 1;
             end loop;
             while Result.Last >= Result.First
               and then Doc (Result.Last) <= ' '
             loop
+               pragma Loop_Invariant
+                 (Result.First >= Pos
+                  and then Result.Last in Result.First .. Doc'Last);
+               pragma Loop_Variant (Decreases => Result.Last);
                Result.Last := Result.Last - 1;
             end loop;
             return Result;
@@ -68,6 +87,7 @@ is
          return 0;
       end if;
       loop
+         pragma Loop_Variant (Increases => Pos);
          Next_Tag (Doc, Pos, Tag, Found);
          exit when not Found;
          if Is_Start (Doc, Tag, Name) and then N < Natural'Last then
@@ -103,6 +123,7 @@ is
          return;
       end if;
       loop
+         pragma Loop_Invariant (Count <= Items'Length);
          Next_Tag (Doc, Pos, Tag, Found);
          exit when not Found or else Count >= Items'Length;
          if Is_Start (Doc, Tag, "item") then
@@ -111,7 +132,7 @@ is
             Attribute (Doc, Tag, "media-type", Kind, Has_Kind);
             if Has_Id and then Has_Href then
                Count := Count + 1;
-               Items (Items'First + Count - 1) :=
+               Items (Items'First + (Count - 1)) :=
                  (Id   => Id,
                   Href => Href,
                   Html => Has_Kind and then Is_Html_Type (Text (Doc, Kind)));
@@ -139,6 +160,8 @@ is
          return;
       end if;
       loop
+         pragma Loop_Invariant
+           (Count <= Spine'Length and then Next < Items'Length);
          Next_Tag (Doc, Pos, Tag, Found);
          exit when not Found or else Count >= Spine'Length;
          if Is_Start (Doc, Tag, "spine") then
@@ -151,9 +174,14 @@ is
                --  The spine usually follows manifest order: search on from
                --  the previous match, wrapping around once.
                for K in 0 .. Items'Length - 1 loop
+                  pragma Loop_Invariant
+                    (Count < Spine'Length and then Next < Items'Length);
                   declare
+                     --  (Next + K) mod Items'Length, without the sum.
                      I : constant Positive :=
-                       Items'First + (Next + K) mod Items'Length;
+                       Items'First
+                       + (if K < Items'Length - Next then Next + K
+                          else K - (Items'Length - Next));
                   begin
                      if Within (Doc, Items (I).Id)
                        and then Text (Doc, Items (I).Id) = Text (Doc, Ref)
@@ -161,7 +189,7 @@ is
                         if Items (I).Html and then Within (Doc, Items (I).Href)
                         then
                            Count := Count + 1;
-                           Spine (Spine'First + Count - 1) := Items (I).Href;
+                           Spine (Spine'First + (Count - 1)) := Items (I).Href;
                         end if;
                         Next := (I - Items'First + 1) mod Items'Length;
                         exit;
@@ -188,7 +216,7 @@ is
       Ok   : out Boolean)
    is
       L : Natural := 0;
-      P : Natural := Href'First;
+      P : Natural := (if Href'Length > 0 then Href'First else 0);
 
       procedure Put (C : Character) is
       begin
@@ -208,11 +236,12 @@ is
 
       --  Base's folder, unless Href is absolute.
       if Href'Length > 0 and then Href (Href'First) = '/' then
-         P := Href'First + 1;
+         P := (if Href'Length > 1 then Href'First + 1 else 0);
       else
          for K in reverse Base'Range loop
             if Base (K) = '/' then
                for J in Base'First .. K loop
+                  pragma Loop_Invariant (L = 0 or else L <= Path'Last);
                   Put (Base (J));
                end loop;
                exit;
@@ -220,21 +249,26 @@ is
          end loop;
       end if;
 
-      --  Href up to a fragment or query, decoded.
+      --  Href up to a fragment or query, decoded.  A step that would leave
+      --  Href ends the loop instead, so P never goes past Href'Last + 1.
       while P in Href'Range loop
+         pragma Loop_Invariant (L = 0 or else L <= Path'Last);
          exit when Href (P) = '#' or else Href (P) = '?';
          if Href (P) = '%' and then P <= Href'Last - 2
            and then Hex (Href (P + 1)) >= 0 and then Hex (Href (P + 2)) >= 0
          then
             Put (Character'Val (Hex (Href (P + 1)) * 16 + Hex (Href (P + 2))));
+            exit when Href'Last - P < 3;
             P := P + 3;
          elsif Href (P) = '&' and then P <= Href'Last - 4
            and then Href (P .. P + 4) = "&amp;"
          then
             Put ('&');
+            exit when Href'Last - P < 5;
             P := P + 5;
          else
             Put (Href (P));
+            exit when P = Href'Last;
             P := P + 1;
          end if;
          exit when not Ok;
@@ -248,15 +282,20 @@ is
       R := 1;
       W := 0;
       while R <= L loop
+         pragma Loop_Invariant
+           (L <= Path'Last and then R >= 1
+            and then (W = 0 or else W <= R - 2));
          Seg_End := R;
          while Seg_End <= L and then Path (Seg_End) /= '/' loop
+            pragma Loop_Invariant (Seg_End in R .. L);
             Seg_End := Seg_End + 1;
          end loop;
          --  The segment is Path (R .. Seg_End - 1).
-         if Seg_End = R or else (Seg_End = R + 1 and then Path (R) = '.') then
+         if Seg_End = R or else (Seg_End - R = 1 and then Path (R) = '.') then
             null;
-         elsif Seg_End = R + 2 and then Path (R .. R + 1) = ".." then
+         elsif Seg_End - R = 2 and then Path (R .. R + 1) = ".." then
             while W > 0 and then Path (W) /= '/' loop
+               pragma Loop_Invariant (W <= R - 2);
                W := W - 1;
             end loop;
             if W > 0 then
@@ -268,10 +307,14 @@ is
                Path (W) := '/';
             end if;
             for K in R .. Seg_End - 1 loop
+               pragma Loop_Invariant
+                 (W - W'Loop_Entry = K - R and then W < K);
                W := W + 1;
                Path (W) := Path (K);
             end loop;
          end if;
+         --  Seg_End is at most L + 1: stop rather than step past it.
+         exit when Seg_End >= L;
          R := Seg_End + 1;
       end loop;
       Last := W;
