@@ -38,7 +38,7 @@ grayscale, frontlight control.
    +-- Layout        SPARK  wrap, paginate, page-start table
    +-- Book sources  SPARK  Plain_Text (TXT) | EPUB: Zip (directory only),
    |                        Opf (spine), Xhtml_Text (paragraph text);
-   |                        Inflate.Raw from vendor/inflate; Book_Source
+   |                        Inflate.Raw from vendor/spark-world; Book_Source
    |                        (not SPARK) loads chapters into PSRAM
    +-- FAT32         SPARK  boot sector / dir entries / LFN / cluster chains
    |                        over caller-supplied sectors (no I/O inside)
@@ -248,7 +248,7 @@ only the test books:
   hands out one chapter's text at a time: UTF-8 paragraphs separated by LF.
   `Text (B) (1 .. Text_Last (B))` is valid until the next `Load`.
 - **EPUB:** only the ZIP central directory and the OPF stay in PSRAM; each
-  chapter is read, inflated (`Inflate.Raw`, from the `vendor/inflate`
+  chapter is read, inflated (`Inflate.Raw`, from the `vendor/spark-world`
   submodule), CRC-checked and converted on `Load`, so a book's size is
   bounded only by its largest chapter (`Max_Chapter`, 2 MB of XHTML). Spine
   items with no manifest entry or a non-HTML media type are skipped, so

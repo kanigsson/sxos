@@ -1,0 +1,10 @@
+--  Configuration pragmas for vendor/inflate.gpr: those of spark-world's
+--  apps/inflate/debug.adc and libs/ore/gnat.adc together.
+
+--  Contracts are proof models, not run-time tests: ignore them, including
+--  where a unit asks for a local Assertion_Policy of its own.
+pragma Assertion_Policy (Ignore);
+pragma Ignore_Pragma (Assertion_Policy);
+
+--  Ore's postconditions use 'Old under short-circuit operators.
+pragma Unevaluated_Use_Of_Old (Allow);

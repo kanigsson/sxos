@@ -26,9 +26,9 @@ is
       Data : Inflate.Byte_Array (1 .. Size - 4) := (others => 0);
    begin
       for I in Data'Range loop
-         Data (I) := R (I - 1);
+         Data (I) := Inflate.Byte (R (I - 1));
       end loop;
-      return Inflate.CRC32.Compute (Data);
+      return Unsigned_32 (Inflate.CRC32.Compute (Data));
    end CRC;
 
    procedure Put_Word (R : in out Image; At_Byte : Natural; W : Unsigned_32)

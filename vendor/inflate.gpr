@@ -1,0 +1,20 @@
+--  Inflate (DEFLATE and CRC-32) and Ore, the library it is written against,
+--  from the vendor/spark-world submodule (github.com/kanigsson/spark-world).
+--  Only Inflate.Raw and Inflate.CRC32 are used.
+--
+--  A project of its own so that it compiles with its own configuration
+--  pragmas (inflate.adc) rather than sxos's switches: its contracts are
+--  proof models, some recursive over the whole buffer, and are never
+--  executed, not even in the host preview's -gnata build.  Withed by both
+--  sxos.gpr and preview.gpr; the objects go under the target's name so the
+--  two builds do not share them.
+project Inflate is
+   for Source_Dirs use ("spark-world/apps/inflate/src",
+                        "spark-world/libs/ore/src");
+   for Object_Dir use "obj/" & Inflate'Target;
+
+   package Compiler is
+      for Default_Switches ("Ada") use ("-O2", "-g", "-gnat2022", "-gnatwJ");
+      for Local_Configuration_Pragmas use "inflate.adc";
+   end Compiler;
+end Inflate;

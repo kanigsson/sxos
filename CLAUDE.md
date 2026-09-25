@@ -20,9 +20,12 @@ Only what is not guessable from the tree is recorded here.
 - The text engine (`Truetype`, `Truetype.Raster`, `Glyphs`, `Text_Raster`) is
   a **copy** from `../epd_common`, owned by sxos. Diverge freely; do not
   sync it back.
-- `vendor/inflate` (github.com/kanigsson/inflate) is the user's own library,
-  used as is: only `Inflate.Raw` and `Inflate.CRC32`. Where its design does
-  not fit sxos, add to `docs/inflate-notes.md` instead of patching it here.
+- Inflate is the user's own library, `apps/inflate` (with `libs/ore`) in the
+  `vendor/spark-world` submodule (github.com/kanigsson/spark-world), built
+  through `vendor/inflate.gpr`. Use it as is: only `Inflate.Raw` (through
+  `Deflate`, the one unit that withs it) and `Inflate.CRC32`. Where its
+  design does not fit sxos, add to `docs/inflate-notes.md` instead of
+  patching it here.
 - Avoid functions returning unconstrained `String`s (`Text`, slices through
   expression functions) in per-byte or per-tag loops: each call copies to
   the secondary stack. That made `Xhtml_Text` 3x slower.
@@ -31,7 +34,9 @@ Only what is not guessable from the tree is recorded here.
 
 Needs `alr` (Alire 2.x) on `PATH`, the sibling `../ada_esp32s3` checkout
 (runtime, HAL, and the shared bare build/flash scripts), and the
-`vendor/inflate` submodule (`git submodule update --init`).
+`vendor/spark-world` submodule (`git submodule update --init`). Needs GNAT
+16 (`gnat_xtensa_esp32_elf` and `gnat_native` 16.1.0): Ore's contracts use
+assertion levels, which GNAT 15 rejects. `ada_esp32s3` pins that version.
 
 ```sh
 ./build.sh                                              # -> app.bin

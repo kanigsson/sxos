@@ -1,9 +1,9 @@
 with Ada.Unchecked_Deallocation;
 with Interfaces; use Interfaces;
 
+with Deflate;
 with Inflate;
 with Inflate.CRC32;
-with Inflate.Raw;
 with Plain_Text;
 with Xhtml_Text;
 with Xml_Scan;
@@ -135,16 +135,11 @@ package body Book_Source is
          Read_Exact (V, B, Start, B.Packed (0 .. Packed - 1), Result);
          if Result = OK then
             declare
-               use type Inflate.Status_Type;
-               Input : Inflate.Byte_Array (1 .. Packed)
-                 with Import, Address => B.Packed (0)'Address;
-               Output : Inflate.Byte_Array (1 .. Size)
-                 with Import, Address => B.Member (0)'Address;
-               Consumed, Produced : Natural;
-               St : Inflate.Status_Type;
+               Valid : Boolean;
             begin
-               Inflate.Raw.Decompress (Input, Output, Consumed, Produced, St);
-               if St /= Inflate.OK or else Produced /= Size then
+               Deflate.Decode
+                 (B.Packed (0 .. Packed - 1), B.Member (0 .. Size - 1), Valid);
+               if not Valid then
                   Result := Bad_Data;
                end if;
             end;
@@ -158,7 +153,7 @@ package body Book_Source is
          Data : Inflate.Byte_Array (1 .. Size)
            with Import, Address => B.Member (0)'Address;
       begin
-         if Inflate.CRC32.Compute (Data) /= M.CRC then
+         if Unsigned_32 (Inflate.CRC32.Compute (Data)) /= M.CRC then
             Result := Bad_Data;
             return;
          end if;

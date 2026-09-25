@@ -1,7 +1,9 @@
 # Using `inflate` in sxos: where its design does not fit
 
-sxos decodes EPUBs with [kanigsson/inflate](https://github.com/kanigsson/inflate)
-(git submodule `vendor/inflate`). It uses `Inflate.Raw` and `Inflate.CRC32`.
+sxos decodes EPUBs with inflate, now `apps/inflate` in
+[kanigsson/spark-world](https://github.com/kanigsson/spark-world) (git
+submodule `vendor/spark-world`, built through `vendor/inflate.gpr`; it was
+[kanigsson/inflate](https://github.com/kanigsson/inflate) until then). It uses `Inflate.Raw` and `Inflate.CRC32`.
 It does not use `Inflate.ZIP`. This file records where the library's design
 did not fit this reader, as input for improving the library. The decoder
 itself was correct on every member of the test books, with every CRC
@@ -51,7 +53,7 @@ Input : Inflate.Byte_Array (1 .. Packed)
   with Import, Address => B.Packed (0)'Address;
 ```
 
-sxos does the overlay in `Book_Source`, which is not SPARK anyway (it
+sxos does the overlay in `Deflate` and `Book_Source`, which is not SPARK anyway (it
 allocates). A SPARK caller could not do this; it would have to copy each
 chapter, which is hundreds of KB here.
 
@@ -77,6 +79,63 @@ all at once. That fits in 8 MB. But a streaming interface would allow:
 **Suggestion:** a resumable decoder with a 32 KB window, keeping its state
 in a record and taking input and output in pieces. This isn't needed by sxos
 today, but it is the change that would matter most for larger chapters.
+
+## 4. A client built with `-gnata` cannot `with Inflate.Raw`
+
+Since the move to spark-world, the postcondition of `Inflate.Raw.Decompress`
+names `Inflate.Bodies.Body_Encodes`, a ghost function that `Inflate.Bodies`
+declares under a local `pragma Assertion_Policy (Ghost => Ignore)`. A client
+whose postconditions are checked (`-gnata`, or `Assertion_Policy (Check)`)
+analyses `Inflate.Raw`'s spec under that policy, and GNAT rejects the unit
+that withs it:
+
+```
+inflate-raw.ads:58:35: error: incompatible ghost policies in effect
+inflate-raw.ads:58:35: error: "Body_Encodes" declared at inflate-bodies.ads:28 with ghost policy "Ignore"
+inflate-raw.ads:58:35: error: "Body_Encodes" used at line 58 with ghost policy "Check"
+```
+
+Setting `Ghost => Ignore` in the client's configuration does not help; only
+`Post => Ignore` does, and that would switch off the client's own
+postconditions. sxos's host preview is built with `-gnata` precisely to check
+its own contracts. So sxos wraps the decoder in `src/core/deflate.adb`, the
+only unit that withs `Inflate.Raw`, and the preview compiles that one body
+without `-gnata`. `Book_Source` is generic, so the call cannot simply stay
+there: an instance's body is compiled in each client unit. `Inflate.CRC32`
+does not have this problem, because its spec sets its own `Ignore` policy
+for Pre, Post and Ghost.
+
+**Suggestion:** give `Inflate.Raw`'s spec the local
+`pragma Assertion_Policy (Post => Ignore)` around `Decompress`, as
+`Inflate.Fixed` and `Inflate.Dynamic` already do around theirs, or make
+`Body_Encodes`'s policy match the spec that names it.
+
+## 5. The library needs configuration pragmas of its own
+
+Its sources compile only with those of `apps/inflate/debug.adc` and
+`libs/ore/gnat.adc`: `Unevaluated_Use_Of_Old (Allow)` for Ore's
+postconditions, and `Assertion_Policy (Ignore)` so that the recursive proof
+models are never executed. A client that just adds the source directories to
+its own project (as sxos did with the old `vendor/inflate/src`) gets neither.
+And `inflate.gpr` withs `ore_lib.gpr` and has fixed object directories, so a
+host build and a cross build of the same checkout would share objects. sxos
+therefore uses its own project, `vendor/inflate.gpr`, which lists both source
+directories, sets those pragmas (`vendor/inflate.adc`) and puts objects under
+the target's name.
+
+**Suggestion:** set the pragmas in the sources that need them, so that the
+units compile under any configuration, or ship a project that a client
+can `with` for any target.
+
+## 6. `Byte` and `Word32` are no longer `Interfaces` types
+
+`Inflate.Byte` and `Inflate.Word32` used to be subtypes of
+`Interfaces.Unsigned_8` and `Unsigned_32`. They are now subtypes of Ore's own
+modular types. sxos's `Bytes.Byte` and its CRC fields are `Interfaces`
+types, so the stored-record CRC and the ZIP CRC check now need explicit
+conversions (`Store_Record.CRC`, `Book_Source.Extract`). That is a small
+change, but it makes the library's byte a third byte type next to the
+caller's and `Interfaces`'.
 
 ## Measurements (for context, not problems)
 

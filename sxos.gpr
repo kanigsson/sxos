@@ -1,5 +1,6 @@
 with "../ada_esp32s3/crates/esp32s3_rts/esp32s3_rts.gpr";
 with "../ada_esp32s3/libs/esp32s3_hal/esp32s3_hal.gpr";
+with "vendor/inflate.gpr";
 
 --  Experimental Xteink X4 Pro application.  This project deliberately does
 --  not enable SPARK or proof tooling; the SoC is ESP32-S3, while panel wiring
@@ -7,9 +8,7 @@ with "../ada_esp32s3/libs/esp32s3_hal/esp32s3_hal.gpr";
 project SXOS is
    for Target use "xtensa-esp32-elf";
    for Runtime ("Ada") use Esp32s3_Rts.Runtime_Path;
-   --  vendor/inflate is a git submodule (github.com/kanigsson/inflate, SPARK
-   --  DEFLATE); only its raw decoder and CRC-32 are used.
-   for Source_Dirs use ("src/core", "src/device", "vendor/inflate/src");
+   for Source_Dirs use ("src/core", "src/device");
    for Object_Dir use "obj";
    for Main use ("main.adb");
 
