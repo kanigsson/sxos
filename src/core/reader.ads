@@ -58,9 +58,10 @@ package Reader is
    function Page_Count return Natural;
 
    --  The current page, with Title in the status bar, and the menu over it
-   --  when Menu is set.
+   --  when Menu is set.  Everything but the book's text is in UI.
    procedure Draw
      (Fr    : in out Mono_Frame.Frame;
+      UI    : Truetype.Font;
       Title : String;
       Batt  : Status_Bar.Battery;
       Menu  : Boolean := False)

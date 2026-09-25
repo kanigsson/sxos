@@ -5,8 +5,7 @@ with Truetype.Raster;
 --  Not SPARK: the pool and the table are allocated on the heap.
 package body Glyph_Cache
   with SPARK_Mode => Off,
-       Refined_State => (State => (Pool, Table, Used, Count, Cov,
-                                   Cached_Font, Have_Font))
+       Refined_State => (State => (Pool, Table, Used, Count, Cov, Fonts))
 is
    package TR renames Truetype.Raster;
    use type Truetype.Font;
@@ -20,8 +19,14 @@ is
    type Byte_Array is array (Natural range <>) of Unsigned_8;
    type Pool_Access is access Byte_Array;
 
+   --  The faces with glyphs in the cache: the interface face and the
+   --  reading face, drawn on the same screen.
+   Max_Fonts : constant := 2;
+   subtype Font_Slot is Positive range 1 .. Max_Fonts;
+
    type Entry_Type is record
       Used     : Boolean := False;
+      Face     : Font_Slot := 1;
       G        : Natural := 0;
       Size     : Positive := 1;
       Gain     : Positive := 1;
@@ -45,8 +50,12 @@ is
    Cell : constant := 128;
    Cov  : TR.Coverage_Array (0 .. Cell * Cell - 1);
 
-   Cached_Font : Truetype.Font;
-   Have_Font   : Boolean := False;
+   type Font_Entry is record
+      Used : Boolean := False;
+      Font : Truetype.Font;
+   end record;
+
+   Fonts : array (Font_Slot) of Font_Entry;
 
    procedure Reset is
    begin
@@ -59,17 +68,47 @@ is
       Count := 0;
    end Reset;
 
-   function Hash (G, Size, Gain : Natural) return Natural is
+   procedure Drop is
+   begin
+      Reset;
+      for S in Font_Slot loop
+         Fonts (S).Used := False;
+      end loop;
+   end Drop;
+
+   --  F's slot.  A face not in the cache takes a free slot; when there is
+   --  none, the cache starts afresh with F alone.
+   function Slot_Of (F : Truetype.Font) return Font_Slot is
+   begin
+      for S in Font_Slot loop
+         if Fonts (S).Used and then Fonts (S).Font = F then
+            return S;
+         end if;
+      end loop;
+      for S in Font_Slot loop
+         if not Fonts (S).Used then
+            Fonts (S) := (Used => True, Font => F);
+            return S;
+         end if;
+      end loop;
+      Drop;
+      Fonts (1) := (Used => True, Font => F);
+      return 1;
+   end Slot_Of;
+
+   function Hash (Face : Font_Slot; G, Size, Gain : Natural) return Natural is
       H : constant Unsigned_32 :=
         Unsigned_32 (G) * 2654435761
         xor Unsigned_32 (Size) * 40503
-        xor Unsigned_32 (Gain) * 97;
+        xor Unsigned_32 (Gain) * 97
+        xor Unsigned_32 (Face) * 2246822519;
    begin
       return Natural (Shift_Right (H, 8) and (Slots - 1));
    end Hash;
 
    --  Rasterise glyph G into slot S.
-   procedure Fill (S : Natural; F : Truetype.Font; G : Natural;
+   procedure Fill (S : Natural; Face : Font_Slot;
+                   F : Truetype.Font; G : Natural;
                    Size, Gain, Threshold : Natural)
    is
       W, H, Adv : Natural;
@@ -84,7 +123,7 @@ is
          Adv := TR.Advance_Px (F, G, Size);
       end if;
       Stride := (W + 7) / 8;
-      Table (S) := (Used => True, G => G, Size => Size, Gain => Gain,
+      Table (S) := (Used => True, Face => Face, G => G, Size => Size, Gain => Gain,
                     W => W, H => H, X_Off => XO, Y_Off => YO, Adv => Adv,
                     Offset => Used);
       for Row in 0 .. H - 1 loop
@@ -119,17 +158,12 @@ is
       Black     : Boolean;
       Adv       : out Natural)
    is
-      S : Natural;
+      Face : constant Font_Slot := Slot_Of (F);
+      S    : Natural := Hash (Face, G, Size, Gain);
    begin
-      if not Have_Font or else Cached_Font /= F then
-         Reset;
-         Cached_Font := F;
-         Have_Font := True;
-      end if;
-
-      S := Hash (G, Size, Gain);
       while Table (S).Used
-        and then not (Table (S).G = G and then Table (S).Size = Size
+        and then not (Table (S).Face = Face and then Table (S).G = G
+                      and then Table (S).Size = Size
                       and then Table (S).Gain = Gain)
       loop
          S := (S + 1) mod Slots;
@@ -139,9 +173,9 @@ is
          --  The largest glyph the scratch cell holds needs Cell * Cell / 8.
          if Count >= Max_Count or else Used + Cell * Cell / 8 > Pool_Size then
             Reset;
-            S := Hash (G, Size, Gain);
+            S := Hash (Face, G, Size, Gain);
          end if;
-         Fill (S, F, G, Size, Gain, Threshold);
+         Fill (S, Face, F, G, Size, Gain, Threshold);
       end if;
 
       declare

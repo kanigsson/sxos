@@ -19,6 +19,7 @@ with Image_FS;
 with Image_Scan;
 with Page_Layout;
 with Reader_View;
+with Reading_Settings;
 with Shelf;
 with Text_Metrics;
 with Truetype;
@@ -137,7 +138,7 @@ begin
          Ok    : Boolean;
          Size  : constant Positive :=
            (if Argument_Count >= 3 then Positive'Value (Argument (3))
-            else Reader_View.Default_Size);
+            else Reading_Settings.Default_Size);
       begin
          Image_Scan.Scan_Fonts (V, Faces, Scan);
          Ok := Font_Catalog.Default (Faces) /= 0;

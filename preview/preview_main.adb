@@ -2,6 +2,10 @@
 --
 --    preview_main CARD library OUT.pgm [SELECTED [BATTERY%]]
 --    preview_main CARD.img reader OUT.pgm BOOK [CHAPTER [PAGE [SIZE [menu]]]]
+--    preview_main CARD.img settings OUT.pgm [SIZE]
+--
+--  With a card image, the environment variable PREVIEW_FACE names the
+--  reading face (a file in /Fonts); the default face is the interface face.
 --
 --  The reader screen opens BOOK (a file name in /Books) at CHAPTER (default:
 --  the first with text) and turns PAGE - 1 pages forward, at SIZE px.
@@ -11,6 +15,7 @@
 --  the firmware runs.
 --  The PGM is portrait 480 x 800, as the device is held.
 with Ada.Command_Line; use Ada.Command_Line;
+with Ada.Environment_Variables;
 with Ada.Streams.Stream_IO;
 with Ada.Text_IO; use Ada.Text_IO;
 
@@ -20,6 +25,8 @@ with Image_Books;
 with Image_Reader;
 with Library_View;
 with Reader_View;
+with Reading_Settings;
+with Settings_View;
 with Mono_Frame;
 with Shelf;
 with Status_Bar;
@@ -34,7 +41,10 @@ with Image_Scan;
 procedure Preview_Main is
    Screen : Mono_Frame.Frame;
    Books  : Shelf.List;
-   Font   : Truetype.Font;
+   Font   : Truetype.Font;       --  the interface face
+   Read   : Truetype.Font;       --  the reading face
+   Faces  : Font_Catalog.List;
+   Read_Face : Font_Catalog.Count_Type := 0;
    Data   : Truetype.Data_Ref;
    Ok     : Boolean;
    Batt   : Status_Bar.Battery;
@@ -70,6 +80,7 @@ begin
                 & "[SELECTED [BATTERY%]]");
       Put_Line ("       preview_main CARD.img reader OUT.pgm BOOK "
                 & "[CHAPTER [PAGE [SIZE [menu]]]]");
+      Put_Line ("       preview_main CARD.img settings OUT.pgm [SIZE]");
       Set_Exit_Status (Failure);
       return;
    end if;
@@ -80,7 +91,6 @@ begin
          package Fonts is new Font_Loader (Image_FS, Image_Scan.Fonts_Folder);
          Status : Image_FS.Mount_Status;
          Scan   : Image_Scan.Scan_Status;
-         Faces  : Font_Catalog.List;
       begin
          Image_Blocks.Open (Argument (1));
          Image_FS.Mount (Volume, Status);
@@ -94,6 +104,20 @@ begin
          if Ok then
             Fonts.Load (Volume, Faces, Font_Catalog.Default (Faces), Font, Ok);
             Put_Line ("font: " & Font_Catalog.File_Name (Faces, Font_Catalog.Default (Faces)));
+            Read := Font;
+            Read_Face := Font_Catalog.Default (Faces);
+         end if;
+         if Ok and then Ada.Environment_Variables.Exists ("PREVIEW_FACE") then
+            Read_Face := Font_Catalog.Find
+              (Faces, Ada.Environment_Variables.Value ("PREVIEW_FACE"));
+            if Read_Face = 0 then
+               Put_Line ("no face " & Ada.Environment_Variables.Value
+                                        ("PREVIEW_FACE") & " in /Fonts");
+               Set_Exit_Status (Failure);
+               return;
+            end if;
+            Fonts.Load (Volume, Faces, Read_Face, Read, Ok);
+            Put_Line ("reading face: " & Font_Catalog.File_Name (Faces, Read_Face));
          end if;
       end;
    else
@@ -101,6 +125,7 @@ begin
       Ok := Data /= null;
       if Ok then
          Truetype.Open (Data, Font, Ok);
+         Read := Font;
       end if;
    end if;
    if not Ok then
@@ -144,7 +169,7 @@ begin
          T0     : Time := Clock;
       begin
          Image_Reader.Open
-           (Volume, Argument (4), Font, Arg (7, Reader_View.Default_Size),
+           (Volume, Argument (4), Read, Arg (7, Reading_Settings.Default_Size),
             (Chapter => Arg (5, 0), Offset => 1), Result);
          Put_Line ("open: " & Result'Image & Duration'Image (Clock - T0)
                    & " s");
@@ -158,7 +183,7 @@ begin
          end loop;
          T0 := Clock;
          Image_Reader.Draw
-           (Screen, Argument (4), Batt,
+           (Screen, Font, Argument (4), Batt,
             Menu => Argument_Count >= 8 and then Argument (8) = "menu");
          Put_Line ("chapter" & Image_Reader.Chapter'Image & " of"
                    & Image_Reader.Chapter_Count'Image & ", page"
@@ -166,6 +191,12 @@ begin
                    & Image_Reader.Page_Count'Image & ", drawn in"
                    & Duration'Image (Clock - T0) & " s");
       end;
+   elsif Argument (2) = "settings" and then Is_Image then
+      Settings_View.Draw
+        (Screen, Font, Read, Font_Catalog.Display_Name (Faces, Read_Face),
+         (if Argument_Count >= 4 then Positive'Value (Argument (4))
+          else Reading_Settings.Default_Size),
+         Batt);
    else
       Put_Line ("unknown screen " & Argument (2));
       Set_Exit_Status (Failure);

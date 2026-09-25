@@ -19,6 +19,7 @@ with Image_FS;
 with Image_Reader;
 with Image_Scan;
 with Reader_View;
+with Reading_Settings;
 with Shelf;
 with Truetype;
 
@@ -35,7 +36,7 @@ procedure Reader_Check is
    Font   : Truetype.Font;
    Ok     : Boolean;
    L      : Shelf.List;
-   Size   : Positive := Reader_View.Default_Size;
+   Size   : Positive := Reading_Settings.Default_Size;
    Errors : Natural := 0;
 
    function "<" (A, B : Image_Reader.Position) return Boolean is

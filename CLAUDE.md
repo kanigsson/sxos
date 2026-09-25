@@ -66,8 +66,10 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
   ```
 
   The PGM is portrait, as the device is held. Check layout and font changes
-  there before flashing. The Reader needs a card image:
-  `preview.sh CARD.img reader out.pgm BOOK [CHAPTER [PAGE [SIZE [menu]]]]`.
+  there before flashing. The Reader and Settings need a card image:
+  `preview.sh CARD.img reader out.pgm BOOK [CHAPTER [PAGE [SIZE [menu]]]]`,
+  `preview.sh CARD.img settings out.pgm [SIZE]`; `PREVIEW_FACE=<file in
+  /Fonts>` sets the reading face for both (default: the interface face).
 - SPARK **legality** (not proof) check of the core — gnatprove from Alire
   (`alr get gnatprove` / the Alire releases dir) with native GNAT on `PATH`:
 

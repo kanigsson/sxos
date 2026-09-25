@@ -4,8 +4,8 @@ with Status_Bar;
 with Truetype;
 
 --  The Library screen: the status bar, one page of book titles with the
---  selected one on an inverted bar, and a page indicator when the list
---  needs more than one page.  Row geometry follows the font's metrics, so
+--  selected one on an inverted bar, and a footer with a page indicator
+--  (when the list needs more than one page) and a Settings button.  Row geometry follows the font's metrics, so
 --  it is computed rather than fixed; Book_At is the matching hit test.
 package Library_View
   with SPARK_Mode => On
@@ -20,6 +20,9 @@ is
    function Book_At
      (F : Truetype.Font; L : Shelf.List; Selected : Natural; Y : Integer)
       return Natural;
+
+   --  Whether portrait (X, Y) is on the Settings button.
+   function Settings_At (X, Y : Integer) return Boolean;
 
    --  Selected = 0 highlights nothing.  With an empty list, Message is
    --  shown instead (e.g. why the card could not be read).

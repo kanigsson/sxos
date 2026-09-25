@@ -6,14 +6,14 @@ with Truetype;
 
 --  The Reader screen: the status bar with the book's title, one page of the
 --  chapter, and the page number underneath.  Tapping the top band opens a
---  menu over the page (the way back to the Library); the left third of the
---  page turns back, the rest forward.
+--  menu over the page (the way to the Library and to Settings); the left
+--  third of the page turns back, the rest forward.
+--
+--  The page's text is in the reading face F; the status bar, the page
+--  number, messages and the menu in the interface face UI.
 package Reader_View
   with SPARK_Mode => On
 is
-   --  The reading font size until there is a Settings screen (M7).
-   Default_Size : constant := 24;
-
    Margin_X  : constant := 26;
    Text_Top  : constant := Status_Bar.Height + 16;
    Footer    : constant := 36;
@@ -31,6 +31,7 @@ is
    --  within the chapter.
    procedure Draw_Page
      (Fr    : in out Mono_Frame.Frame;
+      UI    : Truetype.Font;
       F     : Truetype.Font;
       T     : Text_Metrics.Table;
       G     : Page_Layout.Geometry;
@@ -45,7 +46,7 @@ is
    --  A page with only Message on it (a chapter that could not be read).
    procedure Draw_Message
      (Fr      : in out Mono_Frame.Frame;
-      F       : Truetype.Font;
+      UI      : Truetype.Font;
       Title   : String;
       Batt    : Status_Bar.Battery;
       Message : String);
@@ -56,14 +57,14 @@ is
    function Zone_At (X, Y : Integer) return Zone;
 
    --  The menu, drawn over whatever is on Fr below the status bar: where
-   --  the reader is in the book, and a Library button.
+   --  the reader is in the book, and Library and Settings buttons.
    procedure Draw_Menu
      (Fr                : in out Mono_Frame.Frame;
-      F                 : Truetype.Font;
+      UI                : Truetype.Font;
       Chapter, Chapters : Natural;
       Page, Pages       : Natural);
 
-   type Menu_Choice is (Library, Close);
+   type Menu_Choice is (Library, Settings, Close);
 
    function Menu_At (X, Y : Integer) return Menu_Choice;
 

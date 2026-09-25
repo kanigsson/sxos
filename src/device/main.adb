@@ -1,13 +1,16 @@
---  sxos: mount the card, list /Books, load a font face from /Fonts into
---  PSRAM, and run the two screens.
+--  sxos: mount the card, list /Books, load the font faces from /Fonts into
+--  PSRAM, and run the screens.
 --
 --  Library: the nav buttons move the selection, a tap selects a book and a
 --  tap on the selected one opens it.  Reader: Right or a tap on the right
 --  two thirds turns forward, Left or a tap on the left third back; a tap on
 --  the top band opens the menu over the page, whose Library button closes
---  the book.  Each book's position is saved to internal flash (Device_Store)
---  when the book is closed and a few seconds after the last page turn, and
---  a book reopens where it was left.  The first screen is a full refresh,
+--  the book.  Settings, opened from the Library's footer or the Reader's
+--  menu: the reading face and size (the nav buttons change the size); they
+--  are kept in internal flash, and a change re-lays out the open book at
+--  its position.  Each book's position is saved to internal flash
+--  (Device_Store) when the book is closed and a few seconds after the last
+--  page turn, and a book reopens where it was left.  The first screen is a full refresh,
 --  opening a book a clean one, and everything else a fast (DU) update.
 with Ada.Real_Time; use Ada.Real_Time;
 with Interfaces; use Interfaces;
@@ -19,6 +22,7 @@ with Interfaces.C;
 
 with App_State;
 with Bitmap_Text;
+with Bytes;
 with Card;
 with Card_Books;
 with Card_Library;
@@ -27,10 +31,13 @@ with Device_Store;
 with Font_Catalog;
 with Font_Loader;
 with Gauge;
+with Glyph_Cache;
 with Int_Flash;
 with Library_View;
 with Mono_Frame;
 with Reader_View;
+with Reading_Settings;
+with Settings_View;
 with Shelf;
 with Status_Bar;
 with Store_Record;
@@ -56,13 +63,29 @@ procedure Main is
    Volume   : FS.Volume renames App_State.Volume;
    Books    : Shelf.List renames App_State.Books.all;
    Faces    : Font_Catalog.List renames App_State.Faces;
-   Font     : Truetype.Font;
+   use type Bytes.Byte_Array_Access;
+
+   --  The interface face (the default one, fixed) and the reading face (a
+   --  setting).  Read_Data is the reading face's own buffer, or null when
+   --  it is the interface face.
+   UI_Font   : Truetype.Font;
    Have_Font : Boolean := False;
+   UI_Face   : Font_Catalog.Count_Type := 0;
+   Read_Font : Truetype.Font;
+   Read_Face : Font_Catalog.Count_Type := 0;
+   Read_Data : Bytes.Byte_Array_Access;
+   Prefs     : Reading_Settings.Values;
    Selected : Natural := 0;
    Touch_OK : Boolean;
 
-   type Mode is (Library, Reading, Menu);
+   type Mode is (Library, Reading, Menu, Settings);
    Current : Mode := Library;
+
+   --  While in Settings: the screen to return to (Library or Reading), the
+   --  settings on the way in, and whether the reading face was reloaded.
+   Back_To     : Mode := Library;
+   Before      : Reading_Settings.Values;
+   Face_Loaded : Boolean := False;
 
    --  The open book, and whether its position has changed since it was
    --  last saved (then Turned is the time of the last page turn).
@@ -81,16 +104,62 @@ procedure Main is
    function Heap_Free return Interfaces.C.size_t
      with Import, Convention => C, External_Name => "__bare_heap_free_bytes";
 
-   procedure Load_Font (Face : Font_Catalog.Index) is
-      T0 : constant Time := Clock;
+   procedure Log_Font (Face : Font_Catalog.Index; T0 : Time; Ok : Boolean) is
    begin
-      Fonts.Load (Volume, Faces, Face, Font, Have_Font);
       Put ("[font] " & Font_Catalog.File_Name (Faces, Face) & ": ");
       Put (Integer (Faces.Faces (Face).Size));
       Put (" bytes in ");
       Put (Ms_Since (T0));
-      Put_Line (if Have_Font then " ms" else " ms, but it did not load");
-   end Load_Font;
+      Put (if Ok then " ms" else " ms, but it did not load");
+      Put (", heap free ");
+      Put (Integer (Heap_Free) / 1024);
+      Put_Line (" KB");
+   end Log_Font;
+
+   procedure Load_UI_Font (Face : Font_Catalog.Index) is
+      T0 : constant Time := Clock;
+   begin
+      Fonts.Load (Volume, Faces, Face, UI_Font, Have_Font);
+      Log_Font (Face, T0, Have_Font);
+      if Have_Font then
+         UI_Face := Face;
+         Read_Font := UI_Font;
+         Read_Face := Face;
+      end if;
+   end Load_UI_Font;
+
+   --  Make Face the reading face, loading it unless it is the interface
+   --  face.  If it does not load, the reading face stays as it was.
+   procedure Set_Read_Face (Face : Font_Catalog.Index; Ok : out Boolean) is
+      T0       : constant Time := Clock;
+      New_Font : Truetype.Font;
+      New_Data : Bytes.Byte_Array_Access;
+   begin
+      Ok := True;
+      if Face = Read_Face then
+         return;
+      end if;
+      if Face = UI_Face then
+         New_Font := UI_Font;
+      else
+         Fonts.Load (Volume, Faces, Face, New_Font, New_Data, Ok);
+         Log_Font (Face, T0, Ok);
+         if not Ok then
+            return;
+         end if;
+      end if;
+      --  A later face may be loaded at the freed buffer's address: forget
+      --  the cached glyphs first.
+      Glyph_Cache.Drop;
+      if Read_Data /= null then
+         Fonts.Free (Read_Data);
+      end if;
+      Read_Font := New_Font;
+      Read_Data := New_Data;
+      Read_Face := Face;
+      Prefs.Face := Reading_Settings.Face_Hash (Faces, Face);
+      Face_Loaded := True;
+   end Set_Read_Face;
 
    --  A screen for when there is no usable font: the 5x7 fallback.
    procedure Show_Problem (Line_1, Line_2 : String) is
@@ -104,7 +173,7 @@ procedure Main is
    procedure Render_Library is
       T0 : constant Time := Clock;
    begin
-      Library_View.Draw (Screen, Font, Books, Selected, Gauge.Read);
+      Library_View.Draw (Screen, UI_Font, Books, Selected, Gauge.Read);
       Put ("[sxos] library drawn in ");
       Put (Ms_Since (T0));
       Put_Line (" ms");
@@ -117,7 +186,7 @@ procedure Main is
       T0 : constant Time := Clock;
    begin
       Card_Reader.Draw
-        (Screen, Shelf.Title (Books, Open_Index), Gauge.Read,
+        (Screen, UI_Font, Shelf.Title (Books, Open_Index), Gauge.Read,
          Menu => Current = Menu);
       Put ("[reader] chapter");
       Put (Card_Reader.Chapter);
@@ -180,8 +249,7 @@ procedure Main is
                     Offset  => Positive (Saved (2)));
       end if;
       Card_Reader.Open
-        (Volume, Shelf.Name (Books, I), Font, Reader_View.Default_Size,
-         At_Pos, Result);
+        (Volume, Shelf.Name (Books, I), Read_Font, Prefs.Size, At_Pos, Result);
       Put ("[reader] open " & Shelf.Name (Books, I) & ": " & Result'Image
            & ",");
       Put (Card_Reader.Chapter_Count);
@@ -199,7 +267,7 @@ procedure Main is
       if Result /= Card_Books.OK then
          --  Stay in the Library; the next input redraws it.
          Reader_View.Draw_Message
-           (Screen, Font, Shelf.Title (Books, I), Gauge.Read,
+           (Screen, UI_Font, Shelf.Title (Books, I), Gauge.Read,
             "Cannot open: " & Result'Image);
          X4_Display.Show (Screen);
          return;
@@ -217,6 +285,120 @@ procedure Main is
       Current := Library;
       Render_Library;
    end Close_Book;
+
+   procedure Render_Settings is
+      T0 : constant Time := Clock;
+   begin
+      Settings_View.Draw
+        (Screen, UI_Font, Read_Font,
+         Font_Catalog.Display_Name (Faces, Read_Face), Prefs.Size,
+         Gauge.Read);
+      Put ("[settings] " & Font_Catalog.File_Name (Faces, Read_Face) & ",");
+      Put (Prefs.Size);
+      Put (" px, drawn in ");
+      Put (Ms_Since (T0));
+      Put_Line (" ms");
+      X4_Display.Show (Screen);
+   end Render_Settings;
+
+   procedure Open_Settings (From : Mode) is
+   begin
+      Back_To := From;
+      Before := Prefs;
+      Face_Loaded := False;
+      Current := Settings;
+      Render_Settings;
+   end Open_Settings;
+
+   --  The next face in direction Step that loads.
+   procedure Step_Face (Step : Integer) is
+      I  : Font_Catalog.Index := Read_Face;
+      Ok : Boolean;
+   begin
+      for K in 1 .. Faces.Count - 1 loop
+         if Step > 0 then
+            I := (if I >= Faces.Count then 1 else I + 1);
+         else
+            I := (if I <= 1 then Faces.Count else I - 1);
+         end if;
+         Set_Read_Face (I, Ok);
+         exit when Ok;
+      end loop;
+   end Step_Face;
+
+   procedure Save_Settings is
+      Ok : Boolean;
+   begin
+      Device_Store.Put
+        (Store_Record.Settings_Key, Reading_Settings.To_Payload (Prefs), Ok);
+      Put ("[store] settings");
+      Put (Prefs.Size);
+      Put_Line (" px, " & Font_Catalog.File_Name (Faces, Read_Face)
+                & (if Ok then "" else ": NOT saved"));
+   end Save_Settings;
+
+   --  Leave Settings for the screen it was opened from.  An open book is
+   --  laid out again, at its position, when its face or size changed.
+   procedure Close_Settings is
+      use type Reading_Settings.Values;
+      T0     : constant Time := Clock;
+      Pos    : Card_Reader.Position;
+      Result : Card_Books.Status;
+   begin
+      if Prefs /= Before then
+         Save_Settings;
+      end if;
+      if Back_To /= Reading then
+         Current := Library;
+         Render_Library;
+         return;
+      end if;
+      if not Face_Loaded and then Prefs.Size = Before.Size then
+         Current := Reading;
+         Render_Reader;
+         return;
+      end if;
+      Pos := Card_Reader.Where;
+      Card_Reader.Open
+        (Volume, Shelf.Name (Books, Open_Index), Read_Font, Prefs.Size, Pos,
+         Result);
+      Put ("[reader] relaid out: " & Result'Image & ", chapter");
+      Put (Card_Reader.Chapter);
+      Put (" page");
+      Put (Card_Reader.Page);
+      Put ("/");
+      Put (Card_Reader.Page_Count);
+      Put (" in ");
+      Put (Ms_Since (T0));
+      Put_Line (" ms");
+      if Result /= Card_Books.OK then
+         Current := Library;
+         Render_Library;
+         return;
+      end if;
+      Current := Reading;
+      Render_Reader (X4_Display.Clean);
+   end Close_Settings;
+
+   procedure On_Settings (A : Settings_View.Action) is
+   begin
+      case A is
+         when Settings_View.None =>
+            return;
+         when Settings_View.Prev_Face =>
+            Step_Face (-1);
+         when Settings_View.Next_Face =>
+            Step_Face (1);
+         when Settings_View.Smaller =>
+            Prefs.Size := Reading_Settings.Smaller (Prefs.Size);
+         when Settings_View.Larger =>
+            Prefs.Size := Reading_Settings.Larger (Prefs.Size);
+         when Settings_View.Done =>
+            Close_Settings;
+            return;
+      end case;
+      Render_Settings;
+   end On_Settings;
 
    procedure Turn (Step : Integer) is
       T0    : constant Time := Clock;
@@ -247,6 +429,10 @@ procedure Main is
          when Menu =>
             Current := Reading;
             Render_Reader;
+         when Settings =>
+            On_Settings
+              (if Step > 0 then Settings_View.Larger
+               else Settings_View.Smaller);
       end case;
    end On_Button;
 
@@ -255,7 +441,11 @@ procedure Main is
    begin
       case Current is
          when Library =>
-            Hit := Library_View.Book_At (Font, Books, Selected, Y);
+            if Library_View.Settings_At (X, Y) then
+               Open_Settings (Library);
+               return;
+            end if;
+            Hit := Library_View.Book_At (UI_Font, Books, Selected, Y);
             if Hit /= 0 and then Hit = Selected then
                Open_Book (Hit);
             else
@@ -275,10 +465,14 @@ procedure Main is
             case Reader_View.Menu_At (X, Y) is
                when Reader_View.Library =>
                   Close_Book;
+               when Reader_View.Settings =>
+                  Open_Settings (Reading);
                when Reader_View.Close =>
                   Current := Reading;
                   Render_Reader;
             end case;
+         when Settings =>
+            On_Settings (Settings_View.Action_At (X, Y));
       end case;
    end On_Tap;
 
@@ -363,7 +557,7 @@ begin
       Put_Line ("[card]   " & Font_Catalog.File_Name (Faces, I));
    end loop;
    if Font_Catalog.Default (Faces) /= 0 then
-      Load_Font (Font_Catalog.Default (Faces));
+      Load_UI_Font (Font_Catalog.Default (Faces));
    end if;
    if not Have_Font then
       Show_Problem ("No usable font", "Put a TrueType .ttf into /Fonts.");
@@ -371,6 +565,26 @@ begin
          delay until Clock + Seconds (60);
       end loop;
    end if;
+
+   declare
+      Saved : Store_Record.Payload;
+      Found : Boolean;
+      Face  : Font_Catalog.Count_Type;
+      Ok    : Boolean;
+   begin
+      Device_Store.Lookup (Store_Record.Settings_Key, Saved, Found);
+      if Found then
+         Prefs := Reading_Settings.From_Payload (Saved);
+         Face := Reading_Settings.Find_Face (Faces, Prefs.Face);
+         if Face /= 0 then
+            Set_Read_Face (Face, Ok);
+         end if;
+      end if;
+      Prefs.Face := Reading_Settings.Face_Hash (Faces, Read_Face);
+      Put ("[settings] " & (if Found then "saved" else "defaults") & ":");
+      Put (Prefs.Size);
+      Put_Line (" px, " & Font_Catalog.File_Name (Faces, Read_Face));
+   end;
 
    Scan.Scan_Books (Volume, Books, Scan_Result);
    Put ("[card] books: " & Scan_Result'Image & ",");

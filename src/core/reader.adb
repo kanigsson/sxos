@@ -168,24 +168,25 @@ package body Reader is
 
    procedure Draw
      (Fr    : in out Mono_Frame.Frame;
+      UI    : Truetype.Font;
       Title : String;
       Batt  : Status_Bar.Battery;
       Menu  : Boolean := False) is
    begin
       if Pages > 0 then
          Reader_View.Draw_Page
-           (Fr, Font, Metrics, Geo, Books.Text (Book) (1 .. Text_Last),
+           (Fr, UI, Font, Metrics, Geo, Books.Text (Book) (1 .. Text_Last),
             Starts (Shown), Title, Batt, Shown, Pages);
       elsif Loaded /= Books.OK then
          Reader_View.Draw_Message
-           (Fr, Font, Title, Batt, "Chapter could not be read: "
+           (Fr, UI, Title, Batt, "Chapter could not be read: "
             & Loaded'Image);
       else
-         Reader_View.Draw_Message (Fr, Font, Title, Batt, "No text");
+         Reader_View.Draw_Message (Fr, UI, Title, Batt, "No text");
       end if;
       if Menu then
          Reader_View.Draw_Menu
-           (Fr, Font, Current, Chapter_Count, Shown, Pages);
+           (Fr, UI, Current, Chapter_Count, Shown, Pages);
       end if;
    end Draw;
 

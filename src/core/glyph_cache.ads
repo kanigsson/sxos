@@ -7,8 +7,9 @@ with Truetype;
 --  far dearer than copying its bits (the Library, drawn without a cache,
 --  took 110 ms on the device for some 300 glyphs).
 --
---  Entries are keyed by glyph, size and gain; the whole cache is dropped
---  when the font changes or the pool fills.  The pool and the table are on
+--  Entries are keyed by face, glyph, size and gain.  The cache holds two
+--  faces (the interface's and the reading face); a third one, or a full
+--  pool, drops everything.  The pool and the table are on
 --  the heap (PSRAM on the device).  Not reentrant, like Truetype.Raster.
 package Glyph_Cache
   with SPARK_Mode => On,
@@ -29,6 +30,11 @@ is
       Baseline  : Integer;
       Black     : Boolean;
       Adv       : out Natural)
+     with Global => (In_Out => State);
+
+   --  Drop every glyph.  Call before freeing a face's data: a new face
+   --  loaded at the same address must not find the old one's glyphs.
+   procedure Drop
      with Global => (In_Out => State);
 
 end Glyph_Cache;

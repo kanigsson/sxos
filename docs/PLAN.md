@@ -13,8 +13,8 @@ Ada on the ESP32-S3, no ESP-IDF, no Wi-Fi.
   Cyrillic); no CJK.
 - **Navigation:** open a book from the Library; return from the Reader to the
   Library. The last position per book survives power-off.
-- **Settings:** one screen, reachable from both Library and Reader. Font size
-  only, for now; persisted.
+- **Settings:** one screen, reachable from both Library and Reader: reading
+  face and size; persisted.
 - **Battery indicator** on every screen.
 
 Out of scope for now: Wi-Fi, CJK, bold/italic, hyphenation, TOC navigation,
@@ -97,7 +97,8 @@ problems are fixed there, not by flashing.
 | Reader | Right, or tap right two thirds | next page |
 | Reader | Left, or tap left third | previous page |
 | any | tap top band | overlay: Library · Settings · battery / progress |
-| Settings | tap − / + | font size, with a sample line; back returns to the caller |
+| Library | tap Settings (footer) | Settings |
+| Settings | tap ◀ / ▶, − / + (or Left / Right) | reading face, reading size, with a sample paragraph; Done returns to the caller |
 
 ## Milestones
 
@@ -110,7 +111,7 @@ problems are fixed there, not by flashing.
 | M4 ✓ | Book sources: TXT stream; EPUB via ZIP directory + Inflate + OPF spine + XHTML → text | Inflate is the largest new component |
 | M5 ✓ | Reader: pagination, page turns, overlay, back to Library | layout speed on long chapters |
 | M6 ✓ | `Store`: positions and settings in internal flash | ROM flash calls from the bare runtime (cache/interrupt handling) |
-| M7 | Settings screen (font face and size), shared by both screens | — |
+| M7 ✓ | Settings screen (font face and size), shared by both screens | — |
 | M8 | Polish: sorted and paged Library, power button → deep sleep, idle sleep | wake sources on this board |
 
 M3 is independent and can be done whenever the device is at hand. M1, M2 (the
@@ -118,11 +119,38 @@ parser part), M4 and M5 can mostly be developed against the host preview.
 
 ## Status and next steps
 
-M0–M6 are done and confirmed on the device (see the table): the device boots
+M0–M7 are done and confirmed on the device (see the table): the device boots
 into the Library, rendered with DejaVu Serif from the card, with a working
 battery gauge; the user found the Library's type size good. Books open
 into the Reader and page through on the device, and each book reopens
-where it was left, across power cycles.
+where it was left, across power cycles. The reading face and size are
+set on a Settings screen.
+
+**Next: M8 (polish)** — sorted and paged Library, power button → deep
+sleep, idle sleep.
+
+**M7 (Settings)**, confirmed on the device (size changes from the Library
+and from an open book, which re-laid out at its passage in 72 ms). Not yet
+exercised on the device: switching the face (load + free), and settings
+surviving a reboot.
+
+- `Settings_View`: face (◀ / ▶ through the regular faces in `/Fonts`),
+  size (− / +, 16–48 px in 2 px steps, default 24), a sample paragraph with
+  accents, Greek and Cyrillic (so a face's gaps show), and Done. Left /
+  Right change the size. Reached from the Library's footer button and the
+  Reader menu's Settings button.
+- **Two faces:** the interface (Library, status bars, menu, page numbers)
+  stays in the default face at fixed sizes; only the book's text uses the
+  reading face. `Glyph_Cache` keys entries by face and holds two faces; a
+  third drops everything. Replacing the reading face frees its buffer
+  (`Font_Loader.Free`) after `Glyph_Cache.Drop`, since a new face may land
+  at the same address.
+- `Reading_Settings` stores (size, face hash) under
+  `Store_Record.Settings_Key`, only when changed on Done. The face is an
+  FNV-1a of its case-folded file name; a face no longer on the card falls
+  back to the default.
+- Done with a changed face or size re-opens the book at `Reader.Where`
+  (clean refresh); otherwise it just redraws.
 
 **M6 (Store)**, confirmed on the device (positions saved, device rebooted,
 both books reopened on the saved pages):
@@ -178,8 +206,6 @@ both books reopened on the saved pages):
 - Input: Right / tap on the right two thirds forward, Left / left third
   back, tap on the top band for the menu (chapter and page, Library
   button); any button or a tap elsewhere closes the menu.
-- Reading size is `Reader_View.Default_Size` = 24 px until M7; the user
-  would like it a bit bigger, which the Settings screen will cover.
 - Measured on the device: a page draws in 14–25 ms, a DU turn refreshes in
   0.60 s, opening Baskerville at its 200 KB chapter (load, inflate,
   convert, paginate 321 pages) takes 0.40 s. On the host the largest
@@ -220,14 +246,6 @@ only the test books:
   free size after each book, so buffers are not leaking. On the host,
   `preview/obj/book_check IMAGE` loads every chapter of every book in an
   image, and its text matched an independent Python extraction.
-
-**Next: M7 (Settings)** — one screen, reachable from the Library and from
-the Reader's menu: reading font face (the regular faces in `/Fonts`) and
-size (the user wants a bit bigger than today's 24 px), with a sample line.
-Persist them under `Store_Record.Settings_Key`; a size or face change
-re-lays out the open chapter and keeps the position (`Reader.Open` at
-`Where` is enough). Store the face by file name hash so adding fonts does
-not shift it.
 
 **M3 (fast refresh)** is ported from the FreeInk SDK's X4 Pro UC8279 driver
 (github.com/Free-Ink/freeink-sdk, MIT,

@@ -10,13 +10,15 @@ is
    Foot_Size : constant := 20;
    Menu_Size : constant := 26;
 
-   --  The menu panel and its Library button.
+   --  The menu panel and its two buttons, side by side.
    Panel_Top    : constant := Status_Bar.Height;
    Panel_Height : constant := 190;
-   Button_X     : constant := 40;
+   Button_X     : constant := 30;
+   Button_Gap   : constant := 20;
    Button_Y     : constant := Panel_Top + 90;
-   Button_W     : constant := Mono_Frame.Width - 2 * Button_X;
+   Button_W     : constant := (Mono_Frame.Width - 2 * Button_X - Button_Gap) / 2;
    Button_H     : constant := 70;
+   Button_2_X   : constant := Button_X + Button_W + Button_Gap;
 
    --  Taps above this line open the menu.
    Menu_Band : constant := Status_Bar.Height + 40;
@@ -86,18 +88,19 @@ is
    end Draw_Line;
 
    procedure Draw_Footer
-     (Fr : in out Mono_Frame.Frame; F : Truetype.Font; Page, Pages : Natural)
+     (Fr : in out Mono_Frame.Frame; UI : Truetype.Font; Page, Pages : Natural)
    is
    begin
       if Pages > 0 then
          Text_Raster.Draw_Centered
-           (Fr, F, Foot_Size, 0, Mono_Frame.Width, Mono_Frame.Height - 12,
+           (Fr, UI, Foot_Size, 0, Mono_Frame.Width, Mono_Frame.Height - 12,
             Image (Page) & " / " & Image (Pages));
       end if;
    end Draw_Footer;
 
    procedure Draw_Page
      (Fr    : in out Mono_Frame.Frame;
+      UI    : Truetype.Font;
       F     : Truetype.Font;
       T     : Text_Metrics.Table;
       G     : Page_Layout.Geometry;
@@ -115,27 +118,27 @@ is
       L    : Page_Layout.Line;
    begin
       Mono_Frame.Clear (Fr);
-      Status_Bar.Draw (Fr, F, Title, Batt);
+      Status_Bar.Draw (Fr, UI, Title, Batt);
       while P < Stop loop
          Page_Layout.Break_Line (T, F, G, Text, P, L);
          Draw_Line (Fr, F, T, G, Text, L, Y + G.Ascent);
          Y := Y + G.Line_Height + (if L.Para_End then G.Para_Gap else 0);
          P := L.Next;
       end loop;
-      Draw_Footer (Fr, F, Page, Pages);
+      Draw_Footer (Fr, UI, Page, Pages);
    end Draw_Page;
 
    procedure Draw_Message
      (Fr      : in out Mono_Frame.Frame;
-      F       : Truetype.Font;
+      UI      : Truetype.Font;
       Title   : String;
       Batt    : Status_Bar.Battery;
       Message : String) is
    begin
       Mono_Frame.Clear (Fr);
-      Status_Bar.Draw (Fr, F, Title, Batt);
+      Status_Bar.Draw (Fr, UI, Title, Batt);
       Text_Raster.Draw_Centered
-        (Fr, F, Menu_Size, 0, Mono_Frame.Width, Mono_Frame.Height / 2,
+        (Fr, UI, Menu_Size, 0, Mono_Frame.Width, Mono_Frame.Height / 2,
          Message);
    end Draw_Message;
 
@@ -144,14 +147,27 @@ is
       elsif X < Mono_Frame.Width / 3 then Back
       else Forward);
 
+   procedure Draw_Button
+     (Fr : in out Mono_Frame.Frame; UI : Truetype.Font; X : Integer;
+      Label : String)
+   is
+      Asc  : constant Natural := Text_Raster.Ascent_Px (UI, Menu_Size);
+      Desc : constant Natural := Text_Raster.Descent_Px (UI, Menu_Size);
+   begin
+      Mono_Frame.Frame_Rect (Fr, X, Button_Y, Button_W, Button_H);
+      Mono_Frame.Frame_Rect
+        (Fr, X + 1, Button_Y + 1, Button_W - 2, Button_H - 2);
+      Text_Raster.Draw_Centered
+        (Fr, UI, Menu_Size, X, X + Button_W,
+         Button_Y + (Button_H + Asc - Desc) / 2, Label);
+   end Draw_Button;
+
    procedure Draw_Menu
      (Fr                : in out Mono_Frame.Frame;
-      F                 : Truetype.Font;
+      UI                : Truetype.Font;
       Chapter, Chapters : Natural;
       Page, Pages       : Natural)
    is
-      Asc  : constant Natural := Text_Raster.Ascent_Px (F, Menu_Size);
-      Desc : constant Natural := Text_Raster.Descent_Px (F, Menu_Size);
    begin
       Mono_Frame.Fill_Rect
         (Fr, 0, Panel_Top, Mono_Frame.Width, Panel_Height, Black => False);
@@ -159,22 +175,18 @@ is
         (Fr, 0, Panel_Top + Panel_Height - 3, Mono_Frame.Width, 3);
 
       Text_Raster.Draw_Centered
-        (Fr, F, Menu_Size, 0, Mono_Frame.Width, Panel_Top + 50,
+        (Fr, UI, Menu_Size, 0, Mono_Frame.Width, Panel_Top + 50,
          "Chapter " & Image (Chapter) & " of " & Image (Chapters)
          & ", page " & Image (Page) & " of " & Image (Pages));
 
-      Mono_Frame.Frame_Rect (Fr, Button_X, Button_Y, Button_W, Button_H);
-      Mono_Frame.Frame_Rect
-        (Fr, Button_X + 1, Button_Y + 1, Button_W - 2, Button_H - 2);
-      Text_Raster.Draw_Centered
-        (Fr, F, Menu_Size, Button_X, Button_X + Button_W,
-         Button_Y + (Button_H + Asc - Desc) / 2, "Library");
+      Draw_Button (Fr, UI, Button_X, "Library");
+      Draw_Button (Fr, UI, Button_2_X, "Settings");
    end Draw_Menu;
 
    function Menu_At (X, Y : Integer) return Menu_Choice is
-     (if X in Button_X .. Button_X + Button_W - 1
-         and then Y in Button_Y .. Button_Y + Button_H - 1
-      then Library
+     (if Y not in Button_Y .. Button_Y + Button_H - 1 then Close
+      elsif X in Button_X .. Button_X + Button_W - 1 then Library
+      elsif X in Button_2_X .. Button_2_X + Button_W - 1 then Settings
       else Close);
 
 end Reader_View;
