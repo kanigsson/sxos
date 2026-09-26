@@ -6,9 +6,10 @@
 --  two thirds turns forward, Left or a tap on the left third back; a tap on
 --  the top band opens the menu over the page, whose Library button closes
 --  the book.  Settings, opened from the Library's footer or the Reader's
---  menu: the reading face and size (the nav buttons change the size); they
---  are kept in internal flash, and a change re-lays out the open book at
---  its position.  Each book's position is saved to internal flash
+--  menu: the reading face and size (the nav buttons change the size), and
+--  whether the book's text is grey (anti-aliased, X4_Display.Show_Grey);
+--  they are kept in internal flash, and a change of face or size re-lays
+--  out the open book at its position.  Each book's position is saved to internal flash
 --  (Device_Store) when the book is closed and a few seconds after the last
 --  page turn, and a book reopens where it was left.  The open book is also
 --  kept there (Last_Book_Key), and every boot reopens it: waking, turning
@@ -202,7 +203,8 @@ procedure Main is
       T0 : constant Time := Clock;
    begin
       Card_Reader.Draw
-        (Screen, UI_Font, Shelf.Title (Books, Open_Index), Gauge.Read,
+        (Screen, App_State.Masks.all, Prefs.Grey, UI_Font,
+         Shelf.Title (Books, Open_Index), Gauge.Read,
          Menu => Current = Menu);
       Put ("[reader] chapter");
       Put (Card_Reader.Chapter);
@@ -213,7 +215,11 @@ procedure Main is
       Put (" drawn in ");
       Put (Ms_Since (T0));
       Put_Line (" ms");
-      X4_Display.Show (Screen, Kind);
+      if Prefs.Grey and then Current /= Menu then
+         X4_Display.Show_Grey (Screen, App_State.Masks.all, Kind);
+      else
+         X4_Display.Show (Screen, Kind);
+      end if;
    end Render_Reader;
 
    procedure Set_Selection (I : Natural) is
@@ -328,7 +334,7 @@ procedure Main is
       Settings_View.Draw
         (Screen, UI_Font, Read_Font,
          Font_Catalog.Display_Name (Faces, Read_Face), Prefs.Size,
-         Gauge.Read);
+         Prefs.Grey, Gauge.Read);
       Put ("[settings] " & Font_Catalog.File_Name (Faces, Read_Face) & ",");
       Put (Prefs.Size);
       Put (" px, drawn in ");
@@ -430,6 +436,8 @@ procedure Main is
             Prefs.Size := Reading_Settings.Smaller (Prefs.Size);
          when Settings_View.Larger =>
             Prefs.Size := Reading_Settings.Larger (Prefs.Size);
+         when Settings_View.Switch_Style =>
+            Prefs.Grey := not Prefs.Grey;
          when Settings_View.Done =>
             Close_Settings;
             return;

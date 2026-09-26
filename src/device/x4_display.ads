@@ -21,6 +21,19 @@ package X4_Display is
    --  Put Frame on the glass.  The SSD1677 path always does a full refresh.
    procedure Show (Frame : Mono_Frame.Frame; Kind : Refresh_Kind := Fast_Update);
 
+   --  Put a greyscale screen on the glass (UC8279 only; elsewhere Frame
+   --  alone): Frame, where every pixel that is not white is black, goes up
+   --  first as Show would put it, then a second refresh with the stock
+   --  anti-aliasing waveform (external LUTs) lightens the pixels Masks
+   --  marks grey.  With that waveform light and dark grey look the same.
+   --  The screen after a grey one goes up through the stock non-flashing
+   --  transition waveform instead of a plain fast update, which keeps the
+   --  grey edges' charge from building up.
+   procedure Show_Grey
+     (Frame : Mono_Frame.Frame;
+      Masks : Mono_Frame.Grey_Masks;
+      Kind  : Refresh_Kind := Fast_Update);
+
    --  Power the panel down and put the controller into deep sleep; the
    --  image stays on the glass.  Only Initialize (a reset) wakes it.
    procedure Sleep;

@@ -30,11 +30,13 @@ is in [`design.md`](design.md).
 
 ## Display
 
-- **Grayscale (anti-aliased) text** through FreeInk's 4-level UC8279 path
-  (external LUTs, inverted planes). The largest visual gain. It costs
-  refresh time, and `Truetype.Raster`'s supersampling and stem darkening
-  would need re-fitting (`text_raster.ads` notes they were never fitted for
-  1 bpp Latin text either).
+- **Grey text on the device.** Written, not yet tried (`design.md`,
+  "Grey text"): measure the page turn, look at the grey, tune the level
+  thresholds (`Glyph_Cache`) and stem darkening (`Text_Raster.Grey_Gain_For`),
+  and watch ghosting over many turns. Then: a true four-tone bank (FreeInk
+  builds one by time-scaling the X3's four-grey waveform, for images; it is
+  slower), grey for the Settings sample so the setting can be judged there,
+  and perhaps the interface text.
 - **Faster page turns.** SPI at 16 MHz, as FreeInk uses, instead of 10 MHz
   (`X4_Display`): ~20 ms less per 60 KB plane. Deferring the DTM1 re-write
   after a refresh until the next one.

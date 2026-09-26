@@ -17,6 +17,12 @@ is
       F := (others => 16#FF#);
    end Clear;
 
+   procedure Clear (M : out Grey_Masks) is
+   begin
+      Clear (M.Grey);
+      Clear (M.Dark);
+   end Clear;
+
    procedure Plot (F : in out Frame; X, Y : Integer; Black : Boolean) is
    begin
       if X in Col_Index and then Y in Row_Index then

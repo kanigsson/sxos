@@ -11,11 +11,13 @@ is
    Button   : constant := 70;
    Left_X   : constant := Margin;
    Right_X  : constant := Mono_Frame.Width - Margin - Button;
+   Row_Gap  : constant := 62;   --  room for the next row's label
    Face_Y   : constant := Status_Bar.Height + 64;
-   Size_Y   : constant := Face_Y + Button + 76;
+   Size_Y   : constant := Face_Y + Button + Row_Gap;
+   Style_Y  : constant := Size_Y + Button + Row_Gap;
 
    --  The sample, between two rules.
-   Sample_Top    : constant := Size_Y + Button + 28;
+   Sample_Top    : constant := Style_Y + Button + 28;
    Sample_Bottom : constant := Mono_Frame.Height - 110;
    Sample_X      : constant := 26;   --  the Reader's margin
 
@@ -158,6 +160,7 @@ is
       Sample    : Truetype.Font;
       Face_Name : String;
       Size      : Positive;
+      Grey      : Boolean;
       Batt      : Status_Bar.Battery)
    is
       Asc  : constant Natural := Text_Raster.Ascent_Px (UI, Value_Size);
@@ -181,6 +184,14 @@ is
       Box (Fr, Right_X, Size_Y, Button, Button);
       Plus (Fr, Right_X, Size_Y);
       Row_Value (Fr, UI, Size_Y, Image (Size) & " px");
+
+      Text_Raster.Draw_Text
+        (Fr, UI, Label_Size, Margin, Style_Y - 14, "Reading text");
+      Box (Fr, Left_X, Style_Y, Button, Button);
+      Arrow (Fr, Left_X, Style_Y, Left => True);
+      Box (Fr, Right_X, Style_Y, Button, Button);
+      Arrow (Fr, Right_X, Style_Y, Left => False);
+      Row_Value (Fr, UI, Style_Y, (if Grey then "Grey" else "Sharp"));
 
       Mono_Frame.Fill_Rect (Fr, Margin, Sample_Top, Mono_Frame.Width - 2 * Margin, 1);
       Draw_Sample (Fr, Sample, Size);
@@ -212,6 +223,11 @@ is
                     Button + 2 * Slack, Button + 2 * Slack) then Smaller
       elsif In_Box (X, Y, Right_X - Slack, Size_Y - Slack,
                     Button + 2 * Slack, Button + 2 * Slack) then Larger
+      elsif In_Box (X, Y, Left_X - Slack, Style_Y - Slack,
+                    Button + 2 * Slack, Button + 2 * Slack)
+        or else In_Box (X, Y, Right_X - Slack, Style_Y - Slack,
+                        Button + 2 * Slack, Button + 2 * Slack)
+      then Switch_Style
       elsif In_Box (X, Y, Done_X, Done_Y - Slack, Done_W, Done_H + 2 * Slack)
       then Done
       else None);

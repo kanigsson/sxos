@@ -68,9 +68,13 @@ package Reader is
    function Page_Count return Natural;
 
    --  The current page, with Title in the status bar, and the menu over it
-   --  when Menu is set.  Everything but the book's text is in UI.
+   --  when Menu is set.  Everything but the book's text is in UI.  With
+   --  Grey, the text is anti-aliased, its grey pixels marked in Masks (see
+   --  Reader_View.Draw_Page); not under the menu, which is black and white.
    procedure Draw
      (Fr    : in out Mono_Frame.Frame;
+      Masks : in out Mono_Frame.Grey_Masks;
+      Grey  : Boolean;
       UI    : Truetype.Font;
       Title : String;
       Batt  : Status_Bar.Battery;

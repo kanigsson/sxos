@@ -28,9 +28,13 @@ is
    Max_Stretch : constant := 3;
 
    --  Draw the page of Text starting at Start.  Page and Pages number it
-   --  within the chapter.
+   --  within the chapter.  With Grey, the book's text is anti-aliased: its
+   --  grey pixels are marked in Masks (the rest of the screen is black and
+   --  white); Masks is cleared either way.
    procedure Draw_Page
      (Fr    : out Mono_Frame.Frame;
+      Masks : out Mono_Frame.Grey_Masks;
+      Grey  : Boolean;
       UI    : Truetype.Font;
       F     : Truetype.Font;
       T     : Text_Metrics.Table;

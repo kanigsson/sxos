@@ -3,8 +3,9 @@ with Interfaces; use Interfaces;
 with Font_Catalog;
 with Store_Record;
 
---  The reading settings -- the face and the size of the reading text -- and
---  their store record (under Store_Record.Settings_Key).
+--  The reading settings -- the face and the size of the reading text, and
+--  whether it is drawn in grey (anti-aliased) -- and their store record
+--  (under Store_Record.Settings_Key).
 --
 --  The face is kept as a hash of its file name, not as an index into
 --  /Fonts, so adding or removing fonts does not change it; a face that is no
@@ -22,6 +23,7 @@ is
    type Values is record
       Size : Size_Type := Default_Size;
       Face : Unsigned_32 := 0;   --  Face_Hash; 0: the default face
+      Grey : Boolean := False;
    end record;
 
    function Smaller (S : Size_Type) return Size_Type is
@@ -40,7 +42,7 @@ is
    function Find_Face (L : Font_Catalog.List; H : Unsigned_32)
      return Font_Catalog.Count_Type;
 
-   --  (size, face hash, 0, 0)
+   --  (size, face hash, 1 if grey else 0, 0)
    function To_Payload (V : Values) return Store_Record.Payload;
 
    --  A payload out of range gives the defaults.

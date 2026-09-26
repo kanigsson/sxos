@@ -19,8 +19,9 @@ bare-metal Ada on the ESP32-S3, no ESP-IDF, no Wi-Fi. What comes next is in
 - **Battery indicator** on every screen.
 - **Sleep and off** on the power button.
 
-Not supported: Wi-Fi, CJK, bold/italic, TOC navigation, grayscale,
-frontlight control.
+Not supported: Wi-Fi, CJK, bold/italic, TOC navigation, frontlight
+control. Grey (anti-aliased) text is written but not yet tried on the
+device.
 
 ## Constraints
 
@@ -112,6 +113,37 @@ fixed there, not by flashing.
 Each part below was confirmed on the device, unless its heading says
 otherwise; the milestone it came from (M3–M8) is kept in the heading for
 finding it in the history.
+
+### Grey text (after M8; host-tested, not yet on the device)
+
+- A setting (Settings, "Reading text": Sharp / Grey; the third word of the
+  settings record) draws the book's text anti-aliased. Everything else —
+  status bar, footer, menu, Library, Settings' sample — stays black and
+  white, and so does a page with the menu over it.
+- Drawing: `Glyph_Cache.Draw_Grey` keeps 2 bpp glyphs (coverage below 3 of
+  15 white, from 3 light grey, from 7 dark grey, from 12 black; stem
+  darkening `Text_Raster.Grey_Gain_For`, lighter than the 1 bpp ramp). It
+  sets every inked pixel black in the frame and marks the grey ones in
+  `Mono_Frame.Grey_Masks` (`Grey`: light or dark, `Dark`: dark only),
+  CrossPoint's overlay scheme. The masks live on the heap (96 KB).
+- Refresh (`X4_Display.Show_Grey`), after FreeInk's `Uc8279X4Driver`
+  (displayGrayscaleBase, copyGrayscaleLsb/Msb, displayGray): the frame
+  goes up as for `Show`; then the two RAM planes are loaded from frame and
+  masks so that white, black, light and dark grey get distinct codes, and
+  one refresh with stock's anti-aliasing tables (external LUTs, REG=1, the
+  `LUT_VER` 0x68 bank) lightens the grey pixels; both planes then get the
+  base back. With that bank light and dark grey are the same tone, so the
+  glass shows three levels.
+- After the first grey refresh, a fast update under a grey page, and the
+  screen after a grey one, go through stock's non-flashing transition
+  tables ("prebw_mid") instead of the plain DU, as FreeInk does to keep
+  the grey edges' charge in check. Clean and Full refreshes are unchanged.
+- Unknowns for the device: the refresh times (a page turn is now two
+  refreshes plus four plane writes, ~0.2 s of SPI at 10 MHz), how grey the
+  grey is, whether the level thresholds and stem darkening suit it, and
+  whether ghosting stays in check over many turns.
+- `PREVIEW_GREY=1 preview.sh CARD.img reader ...` renders the grey page
+  with four even levels.
 
 ### Kerning (after M8; host-tested, not yet on the device)
 

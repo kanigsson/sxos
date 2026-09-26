@@ -31,8 +31,10 @@ project SXOS is
       --  instances of the proved generics (Fat32, Card_Scan, Store_Log) in
       --  src/device: an instance takes its instantiating unit's switches.
       --  A unit that becomes fully SPARK and proved belongs on this list.
-      --  Off it until re-proved after the kerning change: page_layout.adb,
-      --  reader_view.adb, text_metrics.adb, text_raster.adb, truetype.adb.
+      --  Off it until re-proved after kerning and grey text:
+      --  mono_frame.adb, page_layout.adb, reader_view.adb,
+      --  reading_settings.adb, settings_view.adb, text_metrics.adb,
+      --  text_raster.adb, truetype.adb.
       Proved := Base & ("-gnatp");
       for Switches ("bitmap_text.adb") use Proved;
       for Switches ("bytes.ads") use Proved;
@@ -40,11 +42,8 @@ project SXOS is
       for Switches ("hyphenation.adb") use Proved;
       for Switches ("language_guess.adb") use Proved;
       for Switches ("library_view.adb") use Proved;
-      for Switches ("mono_frame.adb") use Proved;
       for Switches ("opf.adb") use Proved;
       for Switches ("plain_text.adb") use Proved;
-      for Switches ("reading_settings.adb") use Proved;
-      for Switches ("settings_view.adb") use Proved;
       for Switches ("shelf.adb") use Proved;
       for Switches ("sleep_view.adb") use Proved;
       for Switches ("status_bar.adb") use Proved;

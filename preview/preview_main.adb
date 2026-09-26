@@ -7,6 +7,9 @@
 --
 --  With a card image, the environment variable PREVIEW_FACE names the
 --  reading face (a file in /Fonts); the default face is the interface face.
+--  PREVIEW_GREY=1 draws the reader's text in grey (anti-aliased), shown in
+--  the PGM as four even levels: how grey the panel makes the two grey
+--  levels is up to its waveform (see X4_Display.Show_Grey).
 --
 --  The reader screen opens BOOK (a file name in /Books) at CHAPTER (default:
 --  the first with text) and turns PAGE - 1 pages forward, at SIZE px.
@@ -42,6 +45,7 @@ with Image_Scan;
 
 procedure Preview_Main is
    Screen : Mono_Frame.Frame;
+   Masks  : Mono_Frame.Grey_Masks;
    Books  : Shelf.List;
    Font   : Truetype.Font;       --  the interface face
    Read   : Truetype.Font;       --  the reading face
@@ -69,7 +73,10 @@ procedure Preview_Main is
       for Y in 0 .. Mono_Frame.Height - 1 loop
          for X in 0 .. Mono_Frame.Width - 1 loop
             Row (Stream_Element_Offset (X + 1)) :=
-              (if Mono_Frame.Is_Black (Screen, X, Y) then 0 else 255);
+              (if not Mono_Frame.Is_Black (Screen, X, Y) then 255
+               elsif not Mono_Frame.Is_Black (Masks.Grey, X, Y) then 0
+               elsif Mono_Frame.Is_Black (Masks.Dark, X, Y) then 85
+               else 170);
          end loop;
          Stream_IO.Write (F, Row);
       end loop;
@@ -77,6 +84,7 @@ procedure Preview_Main is
    end Write_PGM;
 
 begin
+   Mono_Frame.Clear (Masks);
    if Argument_Count < 3 then
       Put_Line ("usage: preview_main CARD_DIR library OUT.pgm "
                 & "[SELECTED [BATTERY%]]");
@@ -186,7 +194,9 @@ begin
          end loop;
          T0 := Clock;
          Image_Reader.Draw
-           (Screen, Font, Argument (4), Batt,
+           (Screen, Masks,
+            Ada.Environment_Variables.Value ("PREVIEW_GREY", "") = "1",
+            Font, Argument (4), Batt,
             Menu => Argument_Count >= 8 and then Argument (8) = "menu");
          Put_Line ("chapter" & Image_Reader.Chapter'Image & " of"
                    & Image_Reader.Chapter_Count'Image & ", page"
@@ -200,6 +210,7 @@ begin
         (Screen, Font, Read, Font_Catalog.Display_Name (Faces, Read_Face),
          (if Argument_Count >= 4 then Positive'Value (Argument (4))
           else Reading_Settings.Default_Size),
+         Ada.Environment_Variables.Value ("PREVIEW_GREY", "") = "1",
          Batt);
    elsif Argument (2) = "sleep" or else Argument (2) = "off" then
       Sleep_View.Draw

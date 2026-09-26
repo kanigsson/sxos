@@ -46,6 +46,12 @@ package body X4_Display is
    Old_Valid    : Boolean := False;
    Fast_Streak  : Natural := 0;
 
+   --  Grey: whether a grey refresh has run since the controller was
+   --  initialised (the transition waveform needs one first, as in FreeInk),
+   --  and whether the glass shows a grey screen now.
+   Grey_Seen    : Boolean := False;
+   Grey_Shown   : Boolean := False;
+
    procedure Send (Data : System.Address; Count : Positive) is
       Session : ESP32S3.SPI.Session;
    begin
@@ -213,6 +219,50 @@ package body X4_Display is
       ESP32S3.SPI.Release (Session);
    end Stream_Plane;
 
+   --  Stream one of the two planes of a grey refresh (FreeInk's absolute
+   --  planes, Uc8279X4Driver copyGrayscaleLsb/Msb, sent inverted).  With
+   --  base B (1 white), and the masks' marks as 1 bits (L dark, M any grey):
+   --
+   --     plane 0 (DTM1) = not (B or L)
+   --     plane 1 (DTM2) = not ((B or L) xor M)
+   --
+   --  which gives each pixel a code of its own: white (0, 0), black (1, 1),
+   --  dark grey (0, 1), light grey (1, 0).  A mask frame has 0 bits where it
+   --  marks, as a Frame is black where it is 0.
+   procedure Stream_Grey_Plane
+     (Code  : Byte;
+      Frame : Mono_Frame.Frame;
+      Masks : Mono_Frame.Grey_Masks;
+      Second : Boolean)
+   is
+      Session : ESP32S3.SPI.Session;
+      Offset  : Natural := 0;
+      Row     : aliased White_Row_Buffer;
+      P0      : Byte;
+   begin
+      Command (Code);
+      ESP32S3.GPIO.Set (DC_Pin);
+      ESP32S3.SPI.Acquire
+        (Session, ESP32S3.SPI.SPI2, Mode => 0, Clock_Hz => 10_000_000,
+         CS_Pin => CS_Pin);
+      ESP32S3.SPI.Select_Device (Session, True);
+      for R in 1 .. Gate_Offset loop
+         Send_Selected (Session, White_Row'Address, Bytes_Per_Row);
+      end loop;
+      while Offset < Frame_Size loop
+         for I in Row'Range loop
+            P0 := Frame (Offset + I) or not Masks.Dark (Offset + I);
+            Row (I) :=
+              (if Second then not (P0 xor not Masks.Grey (Offset + I))
+               else not P0);
+         end loop;
+         Send_Selected (Session, Row'Address, Bytes_Per_Row);
+         Offset := Offset + Bytes_Per_Row;
+      end loop;
+      ESP32S3.SPI.Select_Device (Session, False);
+      ESP32S3.SPI.Release (Session);
+   end Stream_Grey_Plane;
+
    --  Fill a RAM plane white over all addressed gates.
    procedure Fill_Plane_White (Code : Byte) is
       Session : ESP32S3.SPI.Session;
@@ -271,6 +321,8 @@ package body X4_Display is
       Data_Byte (16#02#);
       Powered := False;
       Old_Valid := False;
+      Grey_Seen := False;
+      Grey_Shown := False;
    end Initialize_UC8279;
 
    --  UC8279 refresh, following the FreeInk SDK's hardware-validated X4 Pro
@@ -353,6 +405,151 @@ package body X4_Display is
       Stream_Plane (16#10#, Frame);
    end Show_UC8279;
 
+   --  Waveform tables for the external-LUT (REG=1) refreshes, from the
+   --  FreeInk SDK's Uc8279X4Driver (MIT), which took them from the stock
+   --  firmware.  One table per register 0x20 (VCOM), 0x21 (WW), 0x22 (BW),
+   --  0x23 (WB), 0x24 (BB); the rest of each table is zero.
+   type Lut_Head is array (0 .. 13) of Byte;
+   type Lut_Bank is array (0 .. 4) of Lut_Head;
+
+   --  The anti-aliasing bank for LUT_VER 0x68 (stock's "ZHX" bank; 0x02 and
+   --  0x03 have a "QY" bank that differs in one byte per table), sent as
+   --  49-byte tables.  0x22 and 0x23 are the same: both greys look alike.
+   Grey_Lut : constant Lut_Bank :=
+     ((16#01#, 16#02#, 16#03#, 16#01#, 16#01#, 16#01#, 16#01#,
+       16#00#, 16#00#, 16#00#, 16#00#, 16#00#, 16#01#, 16#01#),
+      (16#01#, 16#02#, 16#03#, 16#41#, 16#01#, 16#01#, 16#01#,
+       16#00#, 16#00#, 16#00#, 16#00#, 16#00#, 16#01#, 16#01#),
+      (16#01#, 16#02#, 16#83#, 16#01#, 16#01#, 16#01#, 16#01#,
+       16#00#, 16#00#, 16#00#, 16#00#, 16#00#, 16#01#, 16#01#),
+      (16#01#, 16#02#, 16#83#, 16#01#, 16#01#, 16#01#, 16#01#,
+       16#00#, 16#00#, 16#00#, 16#00#, 16#00#, 16#01#, 16#01#),
+      (16#01#, 16#02#, 16#03#, 16#81#, 16#01#, 16#01#, 16#01#,
+       16#00#, 16#00#, 16#00#, 16#00#, 16#00#, 16#01#, 16#01#));
+   Grey_Lut_Length : constant := 49;
+
+   --  Stock's non-flashing transition from the screen in DTM1 to the one
+   --  in DTM2 ("UC8279_aa_prebw_mid"), sent as 42-byte tables.
+   Transition_Lut : constant Lut_Bank :=
+     ((16#01#, 16#06#, 16#01#, 16#06#, 16#06#, 16#01#, 16#01#,
+       16#01#, 16#02#, 16#04#, 16#00#, 16#00#, 16#01#, 16#01#),
+      (16#01#, 16#06#, 16#81#, 16#06#, 16#06#, 16#01#, 16#01#,
+       16#01#, 16#02#, 16#04#, 16#00#, 16#00#, 16#01#, 16#01#),
+      (16#01#, 16#86#, 16#81#, 16#86#, 16#86#, 16#01#, 16#01#,
+       16#01#, 16#82#, 16#84#, 16#00#, 16#00#, 16#01#, 16#01#),
+      (16#01#, 16#46#, 16#41#, 16#46#, 16#46#, 16#01#, 16#01#,
+       16#01#, 16#42#, 16#44#, 16#00#, 16#00#, 16#01#, 16#01#),
+      (16#01#, 16#06#, 16#01#, 16#06#, 16#06#, 16#01#, 16#01#,
+       16#01#, 16#02#, 16#44#, 16#00#, 16#00#, 16#01#, 16#01#));
+   Transition_Lut_Length : constant := 42;
+
+   procedure Send_Luts (Bank : Lut_Bank; Length : Positive) is
+   begin
+      for T in Bank'Range loop
+         Command (Byte (16#20# + T));
+         for I in 0 .. Length - 1 loop
+            Data_Byte (if I <= Lut_Head'Last then Bank (T) (I) else 0);
+         end loop;
+      end loop;
+   end Send_Luts;
+
+   procedure Power_On is
+   begin
+      if not Powered then
+         Command (16#04#);
+         Wait_UC_Idle;
+         Powered := True;
+      end if;
+   end Power_On;
+
+   --  Start the refresh and wait for it: BUSY_N goes low once it starts
+   --  and high again when the waveform is done.
+   procedure Refresh_And_Wait is
+      Busy_Start : Time;
+   begin
+      Command (16#12#);
+      Busy_Start := Clock;
+      while ESP32S3.GPIO.Read (BUSY_Pin)
+        and then Clock < Busy_Start + Milliseconds (100)
+      loop
+         delay until Clock + Milliseconds (1);
+      end loop;
+      Wait_UC_Idle;
+   end Refresh_And_Wait;
+
+   --  The partial window over the whole visible area (PTIN + PTL).
+   procedure Whole_Window is
+      Y_Start : constant := Gate_Offset;
+      Y_End   : constant := Gate_Offset + Visible_Rows - 1;
+      X_End   : constant := Mono_Frame.Panel_Width - 1;
+   begin
+      Command (16#91#);
+      Command (16#90#);
+      Data_Byte (16#00#);
+      Data_Byte (16#00#);
+      Data_Byte (Byte (X_End / 256));
+      Data_Byte (Byte (X_End mod 256) or 16#07#);
+      Data_Byte (Byte (Y_Start / 256));
+      Data_Byte (Byte (Y_Start mod 256));
+      Data_Byte (Byte (Y_End / 256));
+      Data_Byte (Byte (Y_End mod 256));
+      Data_Byte (16#01#);
+   end Whole_Window;
+
+   --  Go from the screen on the glass (in DTM1) to Frame without a flash:
+   --  FreeInk's transitionGrayscaleBase / runGrayscalePrecondition, stock's
+   --  byte order.  Needs a grey refresh to have run (Grey_Seen) and DTM1 to
+   --  hold what is on the glass (Old_Valid).
+   procedure Transition_UC8279 (Frame : Mono_Frame.Frame) is
+   begin
+      Wait_UC_Idle;
+      Stream_Plane (16#13#, Frame);
+      Whole_Window;
+      Command (16#00#); -- panel setting, REG=1: the tables below
+      Data_Byte (16#37#);
+      Data_Byte (16#4D#);
+      Command (16#03#); -- PFS
+      Data_Byte (16#20#);
+      Command (16#E1#); -- gate scan
+      Data_Byte (16#02#);
+      Command (16#50#); -- CDI
+      Data_Byte (16#D7#);
+      Command (16#E0#); -- CCSET
+      Data_Byte (16#02#);
+      Command (16#E5#); -- forced temperature, as for DU
+      Data_Byte (16#5A#);
+      Send_Luts (Transition_Lut, Transition_Lut_Length);
+      Power_On;
+      Refresh_And_Wait;
+      Command (16#92#); -- PTOUT
+      Stream_Plane (16#10#, Frame);
+   end Transition_UC8279;
+
+   --  The grey pass over a base already on the glass (FreeInk's
+   --  copyGrayscaleLsb/Msb and displayGray): the planes, the anti-aliasing
+   --  tables, CDI, PON, the panel setting again after PON, refresh.  Then
+   --  both planes get the base back, so the next refresh diffs against it.
+   procedure Grey_Pass_UC8279
+     (Frame : Mono_Frame.Frame; Masks : Mono_Frame.Grey_Masks) is
+   begin
+      Wait_UC_Idle;
+      Stream_Grey_Plane (16#10#, Frame, Masks, Second => False);
+      Stream_Grey_Plane (16#13#, Frame, Masks, Second => True);
+      Command (16#00#); -- panel setting, REG=1: external tables
+      Data_Byte (16#37#);
+      Data_Byte (16#4D#);
+      Send_Luts (Grey_Lut, Grey_Lut_Length);
+      Command (16#50#); -- CDI, constant on every grey refresh
+      Data_Byte (16#97#);
+      Power_On;
+      Command (16#00#); -- re-latched after PON
+      Data_Byte (16#37#);
+      Data_Byte (16#4D#);
+      Refresh_And_Wait;
+      Stream_Plane (16#10#, Frame);
+      Stream_Plane (16#13#, Frame);
+   end Grey_Pass_UC8279;
+
    procedure Initialize is
    begin
       --  Power the board peripherals before touching the EPD pins.
@@ -428,25 +625,66 @@ package body X4_Display is
       end if;
    end Initialize;
 
+   --  The UC8279 refresh for Kind, upgraded as the spec says; a fast
+   --  update after a grey screen, or under a grey one when a grey refresh
+   --  has run before, is the non-flashing transition.  Before_Grey: a grey
+   --  pass follows.
+   procedure Show_Base_UC8279
+     (Frame : Mono_Frame.Frame; Kind : Refresh_Kind; Before_Grey : Boolean)
+   is
+      Mode : Refresh_Kind := Kind;
+      T0   : constant Time := Clock;
+      Transition : Boolean;
+   begin
+      if Mode = Fast_Update then
+         if not Old_Valid then
+            Mode := Full;
+         elsif Fast_Streak >= Fast_Updates_Per_Clean then
+            Mode := Clean;
+         end if;
+      end if;
+      Transition := Mode = Fast_Update and then Old_Valid and then Grey_Seen
+        and then (Grey_Shown or else Before_Grey);
+      if Transition then
+         Transition_UC8279 (Frame);
+      else
+         Show_UC8279 (Frame, Mode);
+      end if;
+      Old_Valid := True;
+      Grey_Shown := False;
+      Fast_Streak := (if Mode = Fast_Update then Fast_Streak + 1 else 0);
+      Put ("[x4] " & (if Transition then "TRANSITION" else Mode'Image)
+           & " refresh in ");
+      Put (Integer (To_Duration (Clock - T0) * 1000.0));
+      Put_Line (" ms");
+   end Show_Base_UC8279;
+
+   procedure Show_Grey
+     (Frame : Mono_Frame.Frame;
+      Masks : Mono_Frame.Grey_Masks;
+      Kind  : Refresh_Kind := Fast_Update)
+   is
+      T0 : Time;
+   begin
+      if Controller_Variant /= 16#68# then
+         Show (Frame, Kind);
+         return;
+      end if;
+      Show_Base_UC8279 (Frame, Kind, Before_Grey => True);
+      T0 := Clock;
+      Grey_Pass_UC8279 (Frame, Masks);
+      Grey_Seen := True;
+      Grey_Shown := True;
+      Put ("[x4] GREY refresh in ");
+      Put (Integer (To_Duration (Clock - T0) * 1000.0));
+      Put_Line (" ms");
+   end Show_Grey;
+
    procedure Show (Frame : Mono_Frame.Frame; Kind : Refresh_Kind := Fast_Update) is
       Offset : Natural := 0;
-      Mode   : Refresh_Kind := Kind;
-      T0     : constant Time := Clock;
    begin
       if Controller_Variant = 16#68# then
-         if Mode = Fast_Update then
-            if not Old_Valid then
-               Mode := Full;
-            elsif Fast_Streak >= Fast_Updates_Per_Clean then
-               Mode := Clean;
-            end if;
-         end if;
-         Show_UC8279 (Frame, Mode);
-         Old_Valid := True;
-         Fast_Streak := (if Mode = Fast_Update then Fast_Streak + 1 else 0);
-         Put ("[x4] " & Mode'Image & " refresh in ");
-         Put (Integer (To_Duration (Clock - T0) * 1000.0));
-         Put_Line (" ms");
+         Show_Base_UC8279 (Frame, Kind, Before_Grey => False);
          return;
       end if;
 
@@ -483,6 +721,7 @@ package body X4_Display is
          end if;
          Command (16#07#); -- deep sleep, with the check code
          Data_Byte (16#A5#);
+         Grey_Shown := False;
       else
          Command (16#10#); -- SSD1677 deep sleep mode 1 (RAM kept)
          Data_Byte (16#01#);

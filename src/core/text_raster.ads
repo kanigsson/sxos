@@ -31,6 +31,12 @@ is
    function Gain_For (Size : Positive) return Positive is
      (if Size >= 44 then 16 else 16 + (44 - Size) * 4 / 9);
 
+   --  Stem darkening for grey text (Glyph_Cache.Draw_Grey): grey levels
+   --  carry what thresholding at 1 bpp loses, so less is needed.  Not yet
+   --  fitted on the panel.
+   function Grey_Gain_For (Size : Positive) return Positive is
+     (if Size >= 32 then 16 else 16 + (32 - Size) / 4);
+
    --  Vertical metrics at Size, in whole pixels.  Ascent is above the
    --  baseline, Descent below it (positive); Line_Height adds the line gap.
    --  The font's metrics are 16-bit, which bounds each at any sensible size.

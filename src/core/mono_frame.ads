@@ -29,6 +29,17 @@ is
    --  All white.
    procedure Clear (F : out Frame);
 
+   --  The grey pixels of a greyscale screen, in the layout of a Frame.  In
+   --  Grey the grey pixels (light or dark) are black, in Dark only the dark
+   --  ones.  The Frame beside them has every pixel that is not white black:
+   --  it is what the panel shows before the grey pass (see X4_Display).
+   type Grey_Masks is record
+      Grey, Dark : Frame;
+   end record;
+
+   --  No grey pixels.
+   procedure Clear (M : out Grey_Masks);
+
    procedure Plot (F : in out Frame; X, Y : Integer; Black : Boolean);
 
    function Is_Black (F : Frame; X, Y : Integer) return Boolean;

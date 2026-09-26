@@ -30,11 +30,12 @@ is
    end Find_Face;
 
    function To_Payload (V : Values) return Store_Record.Payload is
-     (Unsigned_32 (V.Size), V.Face, 0, 0);
+     (Unsigned_32 (V.Size), V.Face, (if V.Grey then 1 else 0), 0);
 
    function From_Payload (P : Store_Record.Payload) return Values is
-     (if P (1) in Min_Size .. Max_Size
-      then (Size => Size_Type (P (1)), Face => P (2))
-      else (Size => Default_Size, Face => P (2)));
+     ((Size => (if P (1) in Min_Size .. Max_Size then Size_Type (P (1))
+                else Default_Size),
+       Face => P (2),
+       Grey => P (3) = 1));
 
 end Reading_Settings;

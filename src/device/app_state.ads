@@ -13,6 +13,12 @@ package App_State is
    Volume : Card.FS.Volume;
    Faces  : Font_Catalog.List;
 
+   --  The grey text's masks (Reader_View.Draw_Page), 96 KB, on the heap:
+   --  X4_Display computes the planes from them row by row, so they need
+   --  not be in DRAM.
+   type Masks_Access is access Mono_Frame.Grey_Masks;
+   Masks : constant Masks_Access := new Mono_Frame.Grey_Masks;
+
    --  ~35 KB, on the heap, which is in PSRAM.
    type Shelf_Access is access Shelf.List;
    Books : constant Shelf_Access := new Shelf.List;

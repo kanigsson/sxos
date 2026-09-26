@@ -42,6 +42,8 @@ is
    --  it.
    procedure Draw_Line
      (Fr       : in out Mono_Frame.Frame;
+      Masks    : in out Mono_Frame.Grey_Masks;
+      Grey     : Boolean;
       F        : Truetype.Font;
       T        : Text_Metrics.Table;
       G        : Page_Layout.Geometry;
@@ -55,7 +57,9 @@ is
       use Page_Layout;
 
       Size    : constant Positive := Text_Metrics.Size (T);
-      Gain    : constant Positive := Text_Raster.Gain_For (Size);
+      Gain    : constant Positive :=
+        (if Grey then Text_Raster.Grey_Gain_For (Size)
+         else Text_Raster.Gain_For (Size));
       Space_W : constant Natural :=
         Text_Metrics.Advance (T, F, Character'Pos (' '));
       Budget  : constant Integer :=
@@ -68,13 +72,28 @@ is
       C       : UTF8.Code_Point;
       Prev    : UTF8.Code_Point := Text_Metrics.No_Code;
       Gl      : Natural;
-      --  The cache's own advance for the glyph it drew.  Unused on
-      --  purpose: the pen follows T's advances, which are what the line was
-      --  measured with, so a line is drawn exactly as wide as it was set.
-      Adv     : Natural;
-      pragma Warnings
-        (GNATprove, Off, """Adv"" is set by ""Draw"" but not used*",
-         Reason => "the pen follows the layout's advances, not the cache's");
+
+      --  Draw glyph Id with its pen at Pen.  The cache's own advance for the
+      --  glyph (Adv) is unused on purpose: the pen follows T's advances,
+      --  which are what the line was measured with, so a line is drawn
+      --  exactly as wide as it was set.
+      procedure Glyph_At (Id : Natural; Pen : Integer) is
+         Adv : Natural;
+         pragma Warnings
+           (GNATprove, Off, """Adv"" is set by ""Draw*"" but not used*",
+            Reason => "the pen follows the layout's advances, not the cache's");
+      begin
+         if Grey then
+            Glyph_Cache.Draw_Grey
+              (Fr, Masks, F, Id, Size, Gain, Pen, Baseline, Adv);
+         else
+            Glyph_Cache.Draw
+              (Fr, F, Id, Size, Gain, Text_Raster.Ink_Threshold,
+               Pen, Baseline, True, Adv);
+         end if;
+         pragma Warnings
+           (GNATprove, On, """Adv"" is set by ""Draw*"" but not used*");
+      end Glyph_At;
    begin
       if Justify and then not L.Para_End and then L.Spaces > 0
         and then Budget > L.Width
@@ -110,9 +129,7 @@ is
             end if;
             Gl := Text_Metrics.Glyph (T, F, C);
             if Gl /= 0 then
-               Glyph_Cache.Draw
-                 (Fr, F, Gl, Size, Gain, Text_Raster.Ink_Threshold,
-                  X, Baseline, True, Adv);
+               Glyph_At (Gl, X);
             end if;
             X := Add_Sat (X, Text_Metrics.Advance (T, F, C));
          end if;
@@ -122,13 +139,9 @@ is
          X := Add_Kern (X, Text_Metrics.Kern (T, Prev, Character'Pos ('-')));
          Gl := Text_Metrics.Glyph (T, F, Character'Pos ('-'));
          if Gl /= 0 then
-            Glyph_Cache.Draw
-              (Fr, F, Gl, Size, Gain, Text_Raster.Ink_Threshold,
-               X, Baseline, True, Adv);
+            Glyph_At (Gl, X);
          end if;
       end if;
-      pragma Warnings
-        (GNATprove, On, """Adv"" is set by ""Draw"" but not used*");
    end Draw_Line;
 
    procedure Draw_Footer
@@ -144,6 +157,8 @@ is
 
    procedure Draw_Page
      (Fr    : out Mono_Frame.Frame;
+      Masks : out Mono_Frame.Grey_Masks;
+      Grey  : Boolean;
       UI    : Truetype.Font;
       F     : Truetype.Font;
       T     : Text_Metrics.Table;
@@ -162,10 +177,12 @@ is
       L    : Page_Layout.Line;
    begin
       Mono_Frame.Clear (Fr);
+      Mono_Frame.Clear (Masks);
       Status_Bar.Draw (Fr, UI, Title, Batt);
       while P < Stop loop
          Page_Layout.Break_Line (T, F, G, Text, P, L);
-         Draw_Line (Fr, F, T, G, Text, L, Page_Layout.Add_Sat (Y, G.Ascent));
+         Draw_Line (Fr, Masks, Grey, F, T, G, Text, L,
+                    Page_Layout.Add_Sat (Y, G.Ascent));
          --  Page_End stops the page before the lines leave the area, but
          --  that is not visible from here: add saturating.
          Y := Page_Layout.Add_Sat

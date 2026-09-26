@@ -218,14 +218,18 @@ package body Reader is
 
    procedure Draw
      (Fr    : in out Mono_Frame.Frame;
+      Masks : in out Mono_Frame.Grey_Masks;
+      Grey  : Boolean;
       UI    : Truetype.Font;
       Title : String;
       Batt  : Status_Bar.Battery;
       Menu  : Boolean := False) is
    begin
+      Mono_Frame.Clear (Masks);
       if Pages > 0 then
          Reader_View.Draw_Page
-           (Fr, UI, Font, Metrics, Geo, Books.Text (Book) (1 .. Text_Last),
+           (Fr, Masks, Grey and not Menu, UI, Font, Metrics, Geo,
+            Books.Text (Book) (1 .. Text_Last),
             Starts (Shown), Title, Batt, Shown, Pages);
       elsif Loaded /= Books.OK then
          Reader_View.Draw_Message
