@@ -86,7 +86,8 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
   `preview.sh CARD.img reader out.pgm BOOK [CHAPTER [PAGE [SIZE [menu]]]]`,
   `preview.sh CARD.img settings out.pgm [SIZE]`; `PREVIEW_FACE=<file in
   /Fonts>` sets the reading face for both (default: the interface face).
-  `preview.sh CARD sleep out.pgm [TITLE]` renders the sleep screen.
+  `preview.sh CARD sleep|off out.pgm [TITLE]` renders the sleep or off
+  screen.
 - Proof of the core — gnatprove FSF 16.1 from Alire (`alr get gnatprove` /
   the Alire releases dir) with native GNAT 16 on `PATH`:
 
@@ -150,6 +151,10 @@ fragmented chain.
   GPIO3 to the RTC mux; the holds survive the wake reset, so anything that
   drives those pins must come after `Power.Initialize`. Test sleep by
   pressing Power; a monitor misses the wake's boot log.
+- **Off** is the same deep sleep plus a mark in RTC slow memory (word 3):
+  the board has no power latch (CrossPoint configures none for the X4
+  Pro). `Power.Initialize` checks the mark with the pads still held and
+  goes back to sleep unless the button stays down for `Power_On_Hold`.
 - The CW2017 gauge reads 0 % until the X4 Pro battery profile is loaded;
   `Gauge.Initialize` checks and uploads it. It shares I2C0 with the GT911,
   so `X4_Touch.Initialize` (which sets the bus up) must run first.

@@ -3,7 +3,7 @@
 --    preview_main CARD library OUT.pgm [SELECTED [BATTERY%]]
 --    preview_main CARD.img reader OUT.pgm BOOK [CHAPTER [PAGE [SIZE [menu]]]]
 --    preview_main CARD.img settings OUT.pgm [SIZE]
---    preview_main CARD sleep OUT.pgm [TITLE]
+--    preview_main CARD sleep|off OUT.pgm [TITLE]
 --
 --  With a card image, the environment variable PREVIEW_FACE names the
 --  reading face (a file in /Fonts); the default face is the interface face.
@@ -83,7 +83,7 @@ begin
       Put_Line ("       preview_main CARD.img reader OUT.pgm BOOK "
                 & "[CHAPTER [PAGE [SIZE [menu]]]]");
       Put_Line ("       preview_main CARD.img settings OUT.pgm [SIZE]");
-      Put_Line ("       preview_main CARD sleep OUT.pgm [TITLE]");
+      Put_Line ("       preview_main CARD sleep|off OUT.pgm [TITLE]");
       Set_Exit_Status (Failure);
       return;
    end if;
@@ -201,11 +201,11 @@ begin
          (if Argument_Count >= 4 then Positive'Value (Argument (4))
           else Reading_Settings.Default_Size),
          Batt);
-   elsif Argument (2) = "sleep" then
+   elsif Argument (2) = "sleep" or else Argument (2) = "off" then
       Sleep_View.Draw
         (Screen, Font,
          (if Argument_Count >= 4 then Argument (4) else Library_View.Title),
-         Batt);
+         Batt, Off => Argument (2) = "off");
    else
       Put_Line ("unknown screen " & Argument (2));
       Set_Exit_Status (Failure);

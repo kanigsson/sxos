@@ -127,11 +127,30 @@ battery gauge; the user found the Library's type size good. Books open
 into the Reader and page through on the device, and each book reopens
 where it was left, across power cycles. The reading face and size are
 set on a Settings screen, and the power button (or 10 minutes idle) puts
-it to sleep and wakes it back into the open book.
+it to sleep and wakes it back into the open book; holding it turns the
+reader off (see "Power off" below).
 
 **Next:** nothing planned beyond M8. Candidates, roughly by value: the GT911
 Home key as Back; a lower-current deep sleep (see below); grayscale (AA)
 text through FreeInk's 4-level path; TOC navigation; bold/italic.
+
+**Power off** (after M8), confirmed on the device:
+
+- Holding Power for 1.5 s (`Power_Off_Hold` in `Main`) saves the position
+  and settings, draws the off screen (`Sleep_View.Draw` with `Off`) and
+  deep-sleeps as for sleep, with an off mark in RTC slow memory (word 3)
+  and no book to resume. A short press now acts on release, so the two
+  can be told apart.
+- The X4 Pro has no power latch: the chip cannot cut its own supply, and
+  CrossPoint's "off" is also a deep sleep ("Press and hold power button to
+  turn back on"). So any press wakes the chip; `Power.Initialize` sees the
+  off mark and, with the pads still held and the panel untouched, requires
+  the button to stay down for `Power_On_Hold` (1 s from the start of
+  `Initialize`), or goes straight back to sleep. Turning on is a fresh
+  start into the Library.
+- Off draws the same current as sleep. Dropping the peripheral rail
+  (GPIO1) while off would be the next step, but CrossPoint holds it high
+  and what else it feeds is unknown; untried.
 
 **M8 (polish)**, sleep and wake confirmed on the device:
 

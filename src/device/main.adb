@@ -10,11 +10,13 @@
 --  are kept in internal flash, and a change re-lays out the open book at
 --  its position.  Each book's position is saved to internal flash
 --  (Device_Store) when the book is closed and a few seconds after the last
---  page turn, and a book reopens where it was left.  The power button, or ten
---  minutes without input, puts the reader into deep sleep with a sleep
---  screen on the glass; the power button wakes it, back into the book that
---  was open.  The first screen is a full refresh, opening a book a clean
---  one, and everything else a fast (DU) update.
+--  page turn, and a book reopens where it was left.  A press of the power
+--  button, or ten minutes without input, puts the reader into deep sleep
+--  with a sleep screen on the glass; the power button wakes it, back into
+--  the book that was open.  Holding the power button turns the reader off;
+--  holding it again turns it on, into the Library.  The first screen is a
+--  full refresh, opening a book a clean one, and everything else a fast
+--  (DU) update.
 with Ada.Real_Time; use Ada.Real_Time;
 with Interfaces; use Interfaces;
 with System.BB.CPU_Primitives.Multiprocessors;
@@ -104,6 +106,10 @@ procedure Main is
    --  With no input for this long, the reader goes to sleep.
    Idle_Limit : constant Time_Span := Seconds (10 * 60);
    Last_Input : Time := Clock;
+
+   --  Held this long, the power button turns the reader off; released
+   --  sooner, it puts it to sleep.
+   Power_Off_Hold : constant Time_Span := Milliseconds (1500);
 
    function Ms_Since (T : Time) return Integer is
      (Integer (To_Duration (Clock - T) * 1000.0));
@@ -430,17 +436,21 @@ procedure Main is
 
    --  Show the sleep screen, remember the open book (its position in
    --  flash, which book it was in RTC memory), and deep-sleep until the
-   --  power button is pressed.
-   procedure Go_To_Sleep (Why : String) is
+   --  power button is pressed.  Off: the off screen, no book to resume,
+   --  and only a long press turns the reader on.
+   procedure Go_To_Sleep (Why : String; Off : Boolean := False) is
       use type Reading_Settings.Values;
       Book_Open : constant Boolean := Card_Reader.Is_Open;
    begin
-      Put_Line ("[power] going to sleep: " & Why);
+      Put_Line ((if Off then "[power] turning off: "
+                 else "[power] going to sleep: ") & Why);
       if Current = Settings and then Prefs /= Before then
          Save_Settings;
       end if;
       if Book_Open then
          Save_Position;
+      end if;
+      if Book_Open and then not Off then
          declare
             K : constant Store_Record.Key := Book_Key (Open_Index);
          begin
@@ -453,10 +463,10 @@ procedure Main is
         (Screen, UI_Font,
          (if Book_Open then Shelf.Title (Books, Open_Index)
           else Library_View.Title),
-         Gauge.Read);
+         Gauge.Read, Off);
       X4_Display.Show (Screen, X4_Display.Clean);
       X4_Display.Sleep;
-      Power.Sleep;
+      Power.Sleep (Off);
    end Go_To_Sleep;
 
    procedure On_Button (Step : Integer) is
@@ -529,6 +539,10 @@ procedure Main is
       Ticks   : Natural := 0;
    end record;
    Left, Right, Power_Key : Button_State;
+
+   --  The power button went down at Power_Down and has not been acted on.
+   Power_Pending : Boolean := False;
+   Power_Down    : Time := Time_First;
 
    --  Debounce one button at level Raw (True: pressed); Pressed_Now is set on
    --  the press edge.
@@ -689,7 +703,14 @@ begin
       begin
          Debounce (Power_Key, Power.Button_Down, Now);
          if Now then
+            Last_Input := Clock;
+            Power_Pending := True;
+            Power_Down := Clock;
+         elsif Power_Pending and then not Power_Key.Pressed then
             Go_To_Sleep ("power button");
+         elsif Power_Pending and then Clock - Power_Down >= Power_Off_Hold
+         then
+            Go_To_Sleep ("power button held", Off => True);
          end if;
       end;
       if Clock - Last_Input > Idle_Limit then

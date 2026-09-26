@@ -24,11 +24,13 @@ package body Power is
    Held : constant array (1 .. 6) of ESP32S3.GPIO.Pin_Id :=
      (Rail_Pin, Touch_Pin, Card_Pin, Panel_Rst_Pin, Cool_Pin, Warm_Pin);
 
-   --  RTC slow memory words: a mark, then the book key.
+   --  RTC slow memory words: a mark, then the book key; the off mark.
    Resume_Mark_Word : constant ESP32S3.RTC.Word_Index := 0;
    Resume_A_Word    : constant ESP32S3.RTC.Word_Index := 1;
    Resume_B_Word    : constant ESP32S3.RTC.Word_Index := 2;
+   Off_Mark_Word    : constant ESP32S3.RTC.Word_Index := 3;
    Resume_Mark      : constant Unsigned_32 := 16#5358_4F53#;  --  "SXOS"
+   Off_Mark         : constant Unsigned_32 := 16#4F46_4621#;  --  "OFF!"
 
    --  The RTC_IO pad registers (GPIO n at TOUCH_PAD0 + 4 n): the sleep puts
    --  the button's pad under RTC control; a wake hands it back.
@@ -40,27 +42,58 @@ package body Power is
    RTC_Mux : constant ESP32S3_Registers.UInt32 := 2**19;
 
    Wake : ESP32S3.RTC.Wake_Cause := ESP32S3.RTC.Power_On;
+   Was_Off : Boolean := False;
+
+   procedure Deep_Sleep
+     with No_Return;
+
+   function Button_Down return Boolean is
+     (not ESP32S3.GPIO.Read (Button_Pin));
+
+   --  Whether the button stays down until Power_On_Hold after Start; a
+   --  release of 30 ms ends the wait.
+   function Held_From (Start : Time) return Boolean is
+      Up : Natural := 0;
+   begin
+      while Clock - Start < To_Time_Span (Power_On_Hold) loop
+         Up := (if Button_Down then 0 else Up + 1);
+         if Up >= 3 then
+            return False;
+         end if;
+         delay until Clock + Milliseconds (10);
+      end loop;
+      return True;
+   end Held_From;
 
    procedure Initialize is
+      Start : constant Time := Clock;
    begin
       Wake := ESP32S3.RTC.Last_Wake;
       if Wake /= ESP32S3.RTC.Power_On then
          ESP32S3.RTC.Disable_Super_Watchdog;
       end if;
-      for P of Held loop
-         ESP32S3.RTC_IO.Release (P);
-      end loop;
       Pads (Natural (Button_Pin)) := Pads (Natural (Button_Pin)) and not RTC_Mux;
       ESP32S3.GPIO.Configure
         (Button_Pin, ESP32S3.GPIO.Input, ESP32S3.GPIO.Pull_Up);
-      Put_Line ("[power] boot: " & Wake'Image);
+      Was_Off := Wake = ESP32S3.RTC.Deep_Sleep_GPIO
+        and then ESP32S3.RTC.Read (Off_Mark_Word) = Off_Mark;
+      if Was_Off then
+         --  The pads are still held as the power-off left them.
+         if not Held_From (Start) then
+            Deep_Sleep;
+         end if;
+         ESP32S3.RTC.Write (Off_Mark_Word, 0);
+         Clear_Resume;
+      end if;
+      for P of Held loop
+         ESP32S3.RTC_IO.Release (P);
+      end loop;
+      Put_Line ("[power] boot: " & Wake'Image
+                & (if Was_Off then ", turned on" else ""));
    end Initialize;
 
-   function Button_Down return Boolean is
-     (not ESP32S3.GPIO.Read (Button_Pin));
-
    function Woke_Up return Boolean is
-     (Wake = ESP32S3.RTC.Deep_Sleep_GPIO);
+     (Wake = ESP32S3.RTC.Deep_Sleep_GPIO and then not Was_Off);
 
    procedure Take_Resume (A, B : out Unsigned_32; Found : out Boolean) is
    begin
@@ -91,7 +124,23 @@ package body Power is
       ESP32S3.RTC_IO.Hold (Pin);
    end Hold;
 
-   procedure Sleep is
+   procedure Sleep (Off : Boolean := False) is
+   begin
+      ESP32S3.RTC.Write (Off_Mark_Word, (if Off then Off_Mark else 0));
+      Hold (Rail_Pin, True);
+      Hold (Touch_Pin, True);
+      Hold (Card_Pin, True);
+      Hold (Panel_Rst_Pin, True);
+      Hold (Cool_Pin, False);
+      Hold (Warm_Pin, False);
+      Put_Line (if Off then "[power] off; a long press turns on"
+                else "[power] deep sleep; the power button wakes");
+      Deep_Sleep;
+   end Sleep;
+
+   --  With the pads held: wait for the button's release, then deep-sleep
+   --  until it is pressed.
+   procedure Deep_Sleep is
       Released : Natural := 0;
    begin
       --  The wake is on the button's LOW level: sleeping while it is still
@@ -101,16 +150,8 @@ package body Power is
          Released := (if Button_Down then 0 else Released + 1);
       end loop;
 
-      Hold (Rail_Pin, True);
-      Hold (Touch_Pin, True);
-      Hold (Card_Pin, True);
-      Hold (Panel_Rst_Pin, True);
-      Hold (Cool_Pin, False);
-      Hold (Warm_Pin, False);
-
       ESP32S3.RTC_IO.Enable_RTC_Input (Button_Pin);
       ESP32S3.RTC_IO.Set_Pull (Button_Pin, ESP32S3.RTC_IO.Up);
-      Put_Line ("[power] deep sleep; the power button wakes");
       delay until Clock + Milliseconds (20);   --  let the log drain
 
       ESP32S3.RTC.Deep_Sleep_Until (Button_Pin, High => False);
@@ -126,6 +167,6 @@ package body Power is
       loop
          ESP32S3_Registers.RTC_CNTL.RTC_CNTL_Periph.OPTIONS0.SW_SYS_RST := True;
       end loop;
-   end Sleep;
+   end Deep_Sleep;
 
 end Power;

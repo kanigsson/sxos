@@ -24,6 +24,8 @@ run-time errors (SPARK silver).
 - **Battery indicator** from the CW2017 fuel gauge on every screen.
 - **Sleep:** the power button, or 10 minutes without input, puts the device
   into deep sleep; the power button wakes it back into the open book.
+- **Off:** holding the power button for 1.5 s turns the device off; holding
+  it for 1 s turns it on again, into the Library.
 
 Western scripts only (Latin, Greek, Cyrillic); no CJK, no bold/italic, no
 table of contents yet. See [`docs/PLAN.md`](docs/PLAN.md) for the design and
@@ -53,6 +55,7 @@ A FAT32 card with:
 | Reader | Left, or tap the left third | previous page |
 | any | tap the top band | menu: Library · Settings · battery / progress |
 | any | Power | sleep; Power again wakes |
+| any | hold Power (1.5 s) | off; hold Power (1 s) to turn on |
 
 ## Building and flashing
 
