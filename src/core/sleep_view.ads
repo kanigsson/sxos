@@ -13,5 +13,5 @@ is
       UI    : Truetype.Font;
       Title : String;
       Batt  : Status_Bar.Battery)
-     with Pre => Title'Last <= Positive'Last - 3;
+     with Pre => Title'Last < Positive'Last - 3;
 end Sleep_View;

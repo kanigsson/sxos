@@ -11,10 +11,14 @@ is
    Nub_W  : constant := 4;
    Nub_H  : constant := 8;
 
-   function Image (P : Percent) return String is
+   --  P in decimal with a percent sign.  'Image has at most 11 characters;
+   --  the bound on the slice says so to the prover.
+   function Image (P : Percent) return String
+     with Post => Image'Result'First <= 2 and then Image'Result'Length <= 11
+   is
       S : constant String := Natural'Image (P);
    begin
-      return S (S'First + 1 .. S'Last) & "%";
+      return S (S'First + 1 .. Integer'Min (S'Last, S'First + 10)) & "%";
    end Image;
 
    procedure Draw_Battery

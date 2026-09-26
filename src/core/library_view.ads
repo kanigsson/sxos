@@ -43,6 +43,7 @@ is
       L        : Shelf.List;
       Selected : Natural;
       Batt     : Status_Bar.Battery;
-      Message  : String := "No books in /Books");
+      Message  : String := "No books in /Books")
+     with Pre => Message'Last < Positive'Last;
 
 end Library_View;

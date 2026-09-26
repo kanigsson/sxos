@@ -43,7 +43,7 @@ is
      with Pre => Text'First = 1 and then Text'Last < Positive'Last
                  and then Start <= Text'Last
                  and then Text_Metrics.Size (T) <= Page_Layout.Max_Size
-                 and then Title'Last <= Positive'Last - 3;
+                 and then Title'Last < Positive'Last - 3;
 
    --  A page with only Message on it (a chapter that could not be read).
    procedure Draw_Message
@@ -52,7 +52,8 @@ is
       Title   : String;
       Batt    : Status_Bar.Battery;
       Message : String)
-     with Pre => Title'Last <= Positive'Last - 3;
+     with Pre => Title'Last < Positive'Last - 3
+                 and then Message'Last < Positive'Last;
 
    type Zone is (Menu, Back, Forward);
 

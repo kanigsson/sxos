@@ -24,7 +24,7 @@ is
       F     : Truetype.Font;
       Title : String;
       Batt  : Battery)
-     with Pre => Title'Last <= Positive'Last - 3;
+     with Pre => Title'Last < Positive'Last - 3;
 
    --  The battery glyph alone, right-aligned at Right with its vertical
    --  centre at Mid.  Drawn with rectangles, so it needs no font.

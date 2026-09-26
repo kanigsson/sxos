@@ -96,7 +96,7 @@ is
      (Fr : in out Mono_Frame.Frame; F : Truetype.Font; Y : Integer;
       Str : String)
      with Pre => Y in 0 .. Mono_Frame.Height
-                 and then Str'Last <= Positive'Last - 3
+                 and then Str'Last < Positive'Last - 3
    is
       Left     : constant Integer := Left_X + Button + 8;
       Right    : constant Integer := Right_X - 8;

@@ -188,6 +188,7 @@ is
      (Fr : in out Mono_Frame.Frame; UI : Truetype.Font; X : Integer;
       Label : String)
      with Pre => X in 0 .. Mono_Frame.Width
+                 and then Label'Last < Positive'Last
    is
       Asc  : constant Natural := Text_Raster.Ascent_Px (UI, Menu_Size);
       Desc : constant Natural := Text_Raster.Descent_Px (UI, Menu_Size);

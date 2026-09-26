@@ -20,7 +20,7 @@ is
       Size      : Positive;
       Batt      : Status_Bar.Battery)
      with Pre => Size <= Page_Layout.Max_Size
-                 and then Face_Name'Last <= Positive'Last - 3;
+                 and then Face_Name'Last < Positive'Last - 3;
 
    type Action is (None, Prev_Face, Next_Face, Smaller, Larger, Done);
 
