@@ -20,8 +20,11 @@ is in [`design.md`](design.md).
   `Glyph_Cache` that holds more than two faces.
 - **Progress.** A percentage, or chapter x/y and page n/m, in the status bar
   or the menu, and a progress mark per book in the Library.
-- **Kerning.** `Truetype` reads no `kern` table (nor GPOS). The classic
-  `kern` table is small and noticeably improves Latin text.
+- **Kerning beyond Latin.** Only Latin and general punctuation pairs are
+  kerned in the reading text (`Text_Metrics`); Greek and Cyrillic would
+  need their own table or a larger one. Kerning is also only whole pixels,
+  like the advances: fractional pen positions would need layout widths in
+  sub-pixel units.
 - **Margins and line spacing** as settings. They are fixed ratios in
   `Page_Layout.Make` and `Reader_View` today.
 

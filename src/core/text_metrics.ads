@@ -1,3 +1,4 @@
+with Interfaces;
 with Truetype;
 with UTF8;
 
@@ -10,6 +11,12 @@ with UTF8;
 --  A space-like code point the face lacks (no-break space, thin space, ...)
 --  is given the space's glyph, so it keeps its width instead of vanishing.
 --  A soft hyphen (U+00AD) has no glyph and no width.
+--
+--  Pair kerning is tabled too, in whole pixels, for the pairs of visible
+--  Basic Latin, Latin-1, Latin Extended-A and General Punctuation (U+2010
+--  .. U+2027) characters; other pairs are not kerned.  The table in font
+--  units is kept while the face stays the same, so a size change only
+--  rescales it.  A Table is large (some 600 KB): allocate it on the heap.
 package Text_Metrics
   with SPARK_Mode => On
 is
@@ -17,7 +24,7 @@ is
 
    function Size (T : Table) return Positive;
 
-   procedure Prepare (T : out Table; F : Truetype.Font; Size : Positive)
+   procedure Prepare (T : in out Table; F : Truetype.Font; Size : Positive)
      with Post => Text_Metrics.Size (T) = Size;
 
    --  F must be the font T was prepared from.
@@ -25,6 +32,14 @@ is
      (T : Table; F : Truetype.Font; C : UTF8.Code_Point) return Natural;
    function Advance
      (T : Table; F : Truetype.Font; C : UTF8.Code_Point) return Natural;
+
+   --  No character before: nothing to kern with.
+   No_Code : constant UTF8.Code_Point := 0;
+
+   --  The pen adjustment, in pixels, between Left and Right set side by
+   --  side (negative: closer).  0 for a pair not tabled.
+   function Kern (T : Table; Left, Right : UTF8.Code_Point) return Integer
+     with Post => Kern'Result in -128 .. 127;
 
 private
    --  The covered ranges, laid end to end in one array.
@@ -47,9 +62,31 @@ private
 
    type Entry_Array is array (Slot) of Entry_Type;
 
+   --  The kerned characters: visible Basic Latin, U+00A1 .. U+017F, and
+   --  U+2010 .. U+2027, laid end to end.
+   Kern_Latin_1 : constant := 16#A1#;
+   Kern_Punct   : constant := 16#2010#;
+   Kern_Base_2  : constant := 16#7E# - 16#21# + 1;
+   Kern_Base_3  : constant := Kern_Base_2 + 16#17F# - Kern_Latin_1 + 1;
+   Kern_Slots   : constant := Kern_Base_3 + 16#2027# - Kern_Punct + 1;
+
+   subtype Kern_Slot is Natural range 0 .. Kern_Slots - 1;
+   subtype Kern_Index is Natural range 0 .. Kern_Slots * Kern_Slots - 1;
+
+   type Kern_Px_Array is array (Kern_Index) of Interfaces.Integer_8
+     with Default_Component_Value => 0;
+
    type Table is record
       Size    : Positive := 1;
       Entries : Entry_Array;
+      --  Kerning of the tabled pairs (Left * Kern_Slots + Right): in font
+      --  units for Kern_Face, when Kern_Valid, and in pixels at Size.
+      Kern_Valid  : Boolean := False;
+      Kern_Face   : Truetype.Font;
+      Kern_Glyphs : Truetype.Glyph_List (Kern_Slot);
+      Kern_Units  : Truetype.Kern_Matrix (Kern_Index);
+      Settled     : Truetype.Flag_Matrix (Kern_Index);
+      Kern_Px     : Kern_Px_Array;
    end record;
 
    function Size (T : Table) return Positive is (T.Size);

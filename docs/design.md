@@ -109,8 +109,37 @@ fixed there, not by flashing.
 
 ## Components
 
-Each part below was confirmed on the device; the milestone it came from
-(M3–M8) is kept in the heading for finding it in the history.
+Each part below was confirmed on the device, unless its heading says
+otherwise; the milestone it came from (M3–M8) is kept in the heading for
+finding it in the history.
+
+### Kerning (after M8; host-tested, not yet on the device)
+
+- `Truetype` reads pair kerning from the GPOS `kern` feature — pair
+  adjustment lookups, formats 1 (glyph pairs) and 2 (class pairs), also
+  behind extension lookups — of the `latn` script's default language
+  system (else `DFLT`, else every `kern` feature), and falls back to a
+  legacy `kern` table (format 0). Only the first glyph's X advance
+  adjustment is applied. Of the test card's faces, DejaVu and Liberation
+  have both tables; Literata, Noto and Charis only GPOS (Literata: some
+  22 000 pairs in the Latin range). Charis kerns nothing there.
+- On all nine regular/bold/italic test faces the values match HarfBuzz for
+  every pair of the ~340 kerned characters (Liberation spreads its
+  same-glyph pairs over advance and offset; the total is the same).
+- `Text_Metrics` tables the pairs of visible Basic Latin, U+00A1–U+017F and
+  U+2010–U+2027 (341 characters): in font units per face
+  (`Truetype.Kerning_Matrix`, 1–2.5 ms on the host for a whole face), in
+  whole pixels per size. Other pairs (Greek, Cyrillic) are not kerned in
+  the reading text. The table is ~600 KB, so `Reader` keeps it on the heap.
+- `Page_Layout` measures with the kerning of adjacent characters and
+  `Reader_View` draws with the same values; a space breaks the chain, a
+  soft hyphen does not, and a hyphen drawn at a break is kerned against the
+  letter before it. `Text_Raster` (the interface text) kerns through
+  `Truetype.Kerning` directly, for any script.
+- Kerning moves pens by whole pixels, rounded to nearest, as advances
+  already are: at 24 px only pairs of 0.5 px or more show (most of
+  Literata's classes do not).
+- Pagination is some 3–10 % slower on the host.
 
 ### Power off (after M8)
 

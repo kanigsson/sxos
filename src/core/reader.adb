@@ -14,7 +14,10 @@ package body Reader is
    Book    : Books.Book;
    Opened  : Boolean := False;
    Font    : Truetype.Font;
-   Metrics : Text_Metrics.Table;
+   --  On the heap: the kerning tables make it large.
+   type Metrics_Access is access Text_Metrics.Table;
+   Metrics_Ref : constant Metrics_Access := new Text_Metrics.Table;
+   Metrics : Text_Metrics.Table renames Metrics_Ref.all;
    Geo     : Page_Layout.Geometry;
 
    Current : Natural := 0;             --  chapter

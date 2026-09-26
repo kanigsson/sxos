@@ -7,7 +7,8 @@ with Truetype;
 --  when its coverage reaches Ink_Threshold and left alone otherwise.
 --
 --  Coordinates are portrait Mono_Frame coordinates: text runs left to right
---  along increasing X, above a baseline at Y.
+--  along increasing X, above a baseline at Y.  Adjacent glyphs are kerned
+--  (Truetype.Kerning), rounded to whole pixels.
 --
 --  Glyphs are drawn through Glyph_Cache, which rasterises each glyph and
 --  size once.  NOT REENTRANT, like the cache and Truetype.Raster.
@@ -43,8 +44,8 @@ is
    --  Every entry point below that decodes Str needs Str'Last < Positive'Last,
    --  as UTF8.Next_Code does: the byte after the text must be addressable.
 
-   --  Pixel width of the UTF-8 text Str at Size (advances only; nothing is
-   --  rasterised).  Saturates at Natural'Last.
+   --  Pixel width of the UTF-8 text Str at Size (advances and kerning;
+   --  nothing is rasterised).  Saturates at Natural'Last.
    function Width (F : Truetype.Font; Size : Positive; Str : String)
      return Natural
      with Pre  => Str'Last < Positive'Last,

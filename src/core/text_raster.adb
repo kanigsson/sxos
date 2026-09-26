@@ -43,6 +43,30 @@ is
    function Add_Sat (Total, A : Natural) return Natural is
      (if A > Natural'Last - Total then Natural'Last else Total + A);
 
+   --  Total moved by a kerning adjustment K, clamped to 0 and saturating.
+   function Add_Kern (Total : Natural; K : Integer) return Natural is
+     (if K >= 0 then Add_Sat (Total, K) else Natural'Max (0, Total + K));
+
+   --  The kerning of glyphs Left then Right at Size, in whole pixels
+   --  (rounded to nearest).  At most a 16-bit value scaled by Size.
+   function Kern_Px
+     (F : Truetype.Font; Left, Right : Natural; Size : Positive)
+      return Integer
+     with Post => Kern_Px'Result in -2**20 .. 2**20
+   is
+      Units  : constant Integer := Truetype.Kerning (F, Left, Right);
+      Scaled : constant Long_Long_Integer :=
+        Long_Long_Integer (Units) * Long_Long_Integer (Size);
+      Upem   : constant Long_Long_Integer :=
+        Long_Long_Integer (Truetype.Units_Per_Em (F));
+      R      : constant Long_Long_Integer :=
+        (if Scaled >= 0 then (Scaled + Upem / 2) / Upem
+         else -((Upem / 2 - Scaled) / Upem));
+   begin
+      return Integer (Long_Long_Integer'Max
+                        (-2**20, Long_Long_Integer'Min (2**20, R)));
+   end Kern_Px;
+
    -----------
    -- Width --
    -----------
@@ -55,6 +79,7 @@ is
       P     : Positive := Positive'Max (1, Str'First);
       C     : UTF8.Code_Point;
       G     : Natural;
+      Prev  : Natural := 0;
    begin
       while P <= Str'Last loop
          pragma Loop_Invariant (P >= Str'First);
@@ -62,7 +87,9 @@ is
          UTF8.Next_Code (Str, P, C);
          G := Truetype.Glyph_Index (F, Unsigned_32 (C));
          if G /= 0 then
-            Total := Add_Sat (Total, TR.Advance_Px (F, G, Size));
+            Total := Add_Sat (Add_Kern (Total, Kern_Px (F, Prev, G, Size)),
+                              TR.Advance_Px (F, G, Size));
+            Prev := G;
          end if;
       end loop;
       return Total;
@@ -87,6 +114,8 @@ is
       C   : UTF8.Code_Point;
       G   : Natural;
       Adv : Natural;
+      K   : Integer;
+      Prev : Natural := 0;
 
       G_Eff : constant Positive :=
         (if Gain = Auto_Gain then Gain_For (Size) else Gain);
@@ -96,6 +125,11 @@ is
          UTF8.Next_Code (Str, P, C);
          G := Truetype.Glyph_Index (F, Unsigned_32 (C));
          if G /= 0 then
+            --  A pen this far out draws nothing any more: stop.
+            exit when Pen > Integer'Last / 2 or else Pen < Integer'First / 2;
+            K := Kern_Px (F, Prev, G, Size);
+            Pen := Pen + K;
+            Prev := G;
             Glyph_Cache.Draw
               (Fr, F, G, Size, G_Eff, Ink_Threshold, Pen, Baseline, Black, Adv);
             --  A pen past Integer'Last is past any frame: nothing further
@@ -160,6 +194,7 @@ is
       P     : Positive := Positive'Max (1, Str'First);
       C     : UTF8.Code_Point;
       G     : Natural;
+      Prev  : Natural := 0;
    begin
       while P <= Str'Last loop
          pragma Loop_Invariant
@@ -169,7 +204,9 @@ is
          UTF8.Next_Code (Str, P, C);
          G := Truetype.Glyph_Index (F, Unsigned_32 (C));
          if G /= 0 then
-            Total := Add_Sat (Total, TR.Advance_Px (F, G, Size));
+            Total := Add_Sat (Add_Kern (Total, Kern_Px (F, Prev, G, Size)),
+                              TR.Advance_Px (F, G, Size));
+            Prev := G;
          end if;
          exit when Total > Max_W;
          Last := P - 1;

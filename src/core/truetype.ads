@@ -123,6 +123,54 @@ is
       Ok : out Boolean)
      with Post => Well_Formed (O);
 
+   ---------------------------------------------------------------------------
+   --  Kerning
+   ---------------------------------------------------------------------------
+
+   --  Pair kerning comes from the GPOS table's 'kern' feature: its pair
+   --  adjustment lookups (formats 1 and 2, directly or behind extension
+   --  lookups), summed over the lookups, the first matching subtable of
+   --  each applying.  A font without such lookups falls back to a legacy
+   --  'kern' table (format 0, horizontal subtables).  Only the first
+   --  glyph's X advance adjustment is used, which is what Latin kerning
+   --  is.  Scripts and language systems are not consulted: every lookup a
+   --  'kern' feature names applies.  A malformed GPOS or kern table means
+   --  no kerning, not a failed Open.
+
+   --  How many distinct 'kern' lookups are applied; a font naming more has
+   --  the rest ignored.
+   Max_Kern_Lookups : constant := 16;
+
+   --  The adjustment between glyphs Left and Right set side by side, in
+   --  font units (negative: the pair is set closer).  0 when there is none,
+   --  or when either is glyph 0.
+   function Kerning (F : Font; Left, Right : Natural) return Integer
+     with Post => Kerning'Result in -32_768 .. 32_767;
+
+   --  Kerning of every pair of a list of glyphs at once, which is far
+   --  faster than a call of Kerning per pair.  M (I * N + J) is the
+   --  adjustment for Glyphs (I) followed by Glyphs (J), N = Glyphs'Length;
+   --  Settled is scratch of the same size.  Glyph 0 has no kerning.
+   Max_Kern_Glyphs : constant := 1024;
+
+   type Glyph_List  is array (Natural range <>) of Natural
+     with Default_Component_Value => 0;
+   type Kern_Matrix is array (Natural range <>) of Integer_16
+     with Default_Component_Value => 0;
+   type Flag_Matrix is array (Natural range <>) of Boolean
+     with Default_Component_Value => False;
+
+   procedure Kerning_Matrix
+     (F       : Font;
+      Glyphs  : Glyph_List;
+      M       : in out Kern_Matrix;
+      Settled : in out Flag_Matrix)
+     with Pre => Glyphs'First = 0 and then Glyphs'Length <= Max_Kern_Glyphs
+                 and then M'First = 0
+                 and then M'Length = Glyphs'Length * Glyphs'Length
+                 and then Settled'First = 0
+                 and then Settled'Length = M'Length;
+
 private
 
    --  Open rejects a file this large or larger, which bounds every offset
@@ -140,9 +188,21 @@ private
       Length : Extent := 0;
    end record;
 
+   type Lookup_Ref is record
+      Index  : U16_Value := 0;   --  in the GPOS lookup list
+      Offset : Extent := 0;      --  of the lookup table in the data
+   end record;
+
+   type Lookup_Array is array (1 .. Max_Kern_Lookups) of Lookup_Ref;
+
    type Font is record
       Data       : Data_Ref;
       Head, Maxp, Hhea, Hmtx, Loca, Glyf, Cmap : Table;
+      --  Optional: GPOS and a legacy kern table (Length 0 when absent),
+      --  and the GPOS lookups of the 'kern' feature.
+      Gpos, Kern : Table;
+      N_Kern     : Natural range 0 .. Max_Kern_Lookups := 0;
+      Kern_Looks : Lookup_Array;
       --  The chosen cmap SUBTABLE (not the table), and its format.
       Cmap_Sub   : Table;
       Cmap_Fmt   : U16_Value := 0;

@@ -27,7 +27,39 @@ is
       then UTF8.Code_Point (S - Greek_Base) + Greek_First
       else UTF8.Code_Point (S - Punct_Base) + Punct_First);
 
-   procedure Prepare (T : out Table; F : Truetype.Font; Size : Positive) is
+   --  The kern slot of C, or -1 when C is not kerned.
+   function Kern_Slot_Of (C : UTF8.Code_Point) return Integer is
+     (if C in 16#21# .. 16#7E# then Integer (C - 16#21#)
+      elsif C in Kern_Latin_1 .. 16#17F#
+      then Kern_Base_2 + Integer (C - Kern_Latin_1)
+      elsif C in Kern_Punct .. 16#2027#
+      then Kern_Base_3 + Integer (C - Kern_Punct)
+      else -1)
+   with Post => Kern_Slot_Of'Result in -1 .. Kern_Slots - 1;
+
+   function Kern_Code (S : Kern_Slot) return UTF8.Code_Point is
+     (if S < Kern_Base_2 then UTF8.Code_Point (S) + 16#21#
+      elsif S < Kern_Base_3
+      then UTF8.Code_Point (S - Kern_Base_2) + Kern_Latin_1
+      else UTF8.Code_Point (S - Kern_Base_3) + Kern_Punct);
+
+   --  Font units -> pixels at Size, rounded to nearest, clamped to a byte.
+   function Kern_Px (Units : Integer_16; Size : Positive; Upem : Positive)
+     return Integer_8
+   is
+      Scaled : constant Long_Long_Integer :=
+        Long_Long_Integer (Units) * Long_Long_Integer (Size);
+      Half   : constant Long_Long_Integer := Long_Long_Integer (Upem) / 2;
+      R      : constant Long_Long_Integer :=
+        (if Scaled >= 0 then (Scaled + Half) / Long_Long_Integer (Upem)
+         else -((-Scaled + Half) / Long_Long_Integer (Upem)));
+   begin
+      return Integer_8 (Long_Long_Integer'Max
+                          (-128, Long_Long_Integer'Min (127, R)));
+   end Kern_Px;
+
+   procedure Prepare (T : in out Table; F : Truetype.Font; Size : Positive) is
+      use type Truetype.Font;
       Space : constant Natural := Truetype.Glyph_Index (F, 32);
       C     : UTF8.Code_Point;
       G     : Natural;
@@ -45,6 +77,19 @@ is
            (Glyph   => G,
             Advance =>
               (if G = 0 then 0 else Truetype.Raster.Advance_Px (F, G, Size)));
+      end loop;
+
+      if not T.Kern_Valid or else T.Kern_Face /= F then
+         for S in Kern_Slot loop
+            T.Kern_Glyphs (S) := Glyph (T, F, Kern_Code (S));
+         end loop;
+         Truetype.Kerning_Matrix (F, T.Kern_Glyphs, T.Kern_Units, T.Settled);
+         T.Kern_Face := F;
+         T.Kern_Valid := True;
+      end if;
+      for K in Kern_Index loop
+         T.Kern_Px (K) :=
+           Kern_Px (T.Kern_Units (K), Size, Truetype.Units_Per_Em (F));
       end loop;
    end Prepare;
 
@@ -72,5 +117,16 @@ is
       G := Truetype.Glyph_Index (F, Unsigned_32 (C));
       return (if G = 0 then 0 else Truetype.Raster.Advance_Px (F, G, T.Size));
    end Advance;
+
+   function Kern (T : Table; Left, Right : UTF8.Code_Point) return Integer
+   is
+      L : constant Integer := Kern_Slot_Of (Left);
+      R : constant Integer := Kern_Slot_Of (Right);
+   begin
+      if L < 0 or else R < 0 then
+         return 0;
+      end if;
+      return Integer (T.Kern_Px (L * Kern_Slots + R));
+   end Kern;
 
 end Text_Metrics;

@@ -11,7 +11,9 @@ with Truetype;
 --  (U+00AD, which is otherwise invisible); a no-break space (U+00A0) never
 --  breaks.  With patterns in Hyph, the word that overflows the line is
 --  hyphenated too, unless it has soft hyphens of its own.  A word wider
---  than the column is cut at a code-point boundary.
+--  than the column is cut at a code-point boundary.  Widths include the
+--  kerning of adjacent characters (Text_Metrics.Kern); a space, and the
+--  start of a line, break the chain.
 --
 --  Every line and page is determined by where it starts, so a page is drawn
 --  by setting lines from its start offset again, and a chapter's pages are
@@ -50,6 +52,10 @@ is
    --  advances over arbitrary text, so they are added saturating.
    function Add_Sat (A, B : Natural) return Natural is
      (if B <= Natural'Last - A then A + B else Natural'Last);
+
+   --  A moved by a kerning adjustment K, clamped to 0 and saturating.
+   function Add_Kern (A : Natural; K : Integer) return Natural is
+     (if K >= 0 then Add_Sat (A, K) else Natural'Max (0, A + K));
 
    type Line is record
       First      : Positive := 1;   --  first byte

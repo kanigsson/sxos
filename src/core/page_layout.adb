@@ -50,10 +50,11 @@ is
    Soft_Hyphen : constant UTF8.Code_Point := 16#AD#;
 
    --  Where to break inside the word Text (Run_First .. Run_Last), a run of
-   --  letters starting Run_W pixels into the line: after the last
-   --  hyphenation point whose part of the word, with a hyphen, fits in
-   --  Budget.  Last is that part's last byte, Width the line's width up to
-   --  and with the hyphen.  Found is False when no point fits.
+   --  letters starting Run_W pixels into the line after the character
+   --  Before: after the last hyphenation point whose part of the word, with
+   --  a hyphen, fits in Budget.  Last is that part's last byte, Width the
+   --  line's width up to and with the hyphen.  Found is False when no point
+   --  fits.
    procedure Hyphenate_Run
      (T         : Text_Metrics.Table;
       F         : Truetype.Font;
@@ -62,6 +63,7 @@ is
       Run_First : Positive;
       Run_Last  : Positive;
       Run_W     : Natural;
+      Before    : UTF8.Code_Point;
       Hyphen_W  : Natural;
       Budget    : Natural;
       Last      : out Natural;
@@ -100,20 +102,38 @@ is
          N := N + 1;
          Word (N) := C;
          Ends (N) := P - 1;
+         --  The first letter's kerning with Before goes into Start below.
          Widths (N) :=
-           Add_Sat (Widths (N - 1), Text_Metrics.Advance (T, F, C));
+           Add_Sat (Add_Kern (Widths (N - 1),
+                              (if N = 1 then 0
+                               else Text_Metrics.Kern (T, Word (N - 1), C))),
+                    Text_Metrics.Advance (T, F, C));
       end loop;
+      if N = 0 then
+         return;
+      end if;
       Hyphenation.Hyphenate (H, Word (1 .. N), Breaks (1 .. N));
-      for I in reverse 1 .. N - 1 loop
-         if Breaks (I)
-           and then Add_Sat (Add_Sat (Run_W, Widths (I)), Hyphen_W) <= Budget
-         then
-            Last := Ends (I);
-            Width := Add_Sat (Add_Sat (Run_W, Widths (I)), Hyphen_W);
-            Found := True;
-            return;
-         end if;
-      end loop;
+      declare
+         Start : constant Natural :=
+           Add_Kern (Run_W, Text_Metrics.Kern (T, Before, Word (1)));
+         W     : Natural;
+      begin
+         for I in reverse 1 .. N - 1 loop
+            if Breaks (I) then
+               W := Add_Sat
+                 (Add_Kern (Add_Sat (Start, Widths (I)),
+                            Text_Metrics.Kern
+                              (T, Word (I), Character'Pos ('-'))),
+                  Hyphen_W);
+               if W <= Budget then
+                  Last := Ends (I);
+                  Width := W;
+                  Found := True;
+                  return;
+               end if;
+            end if;
+         end loop;
+      end;
    end Hyphenate_Run;
 
    procedure Break_Line
@@ -137,8 +157,11 @@ is
       Q2     : Positive;
       C      : UTF8.Code_Point;
       A      : Natural;
+      K      : Integer;
       W      : Natural := 0;
       Spaces : Natural := 0;
+      --  The visible character before Q, to kern with (none after a space).
+      Prev   : UTF8.Code_Point := Text_Metrics.No_Code;
 
       --  The latest place the line could end: its last byte, where the
       --  next line would start, its width and its spaces, and whether a
@@ -156,6 +179,7 @@ is
       In_Run     : Boolean := False;
       Run_First  : Positive := From;
       Run_W      : Natural := 0;
+      Run_Before : UTF8.Code_Point := Text_Metrics.No_Code;
       Run_Spaces : Natural := 0;
       Run_Shy    : Boolean := False;
    begin
@@ -198,6 +222,7 @@ is
             B_Next := Q2;
             Spaces := Spaces + 1;
             W := Add_Sat (W, Space_W);
+            Prev := Text_Metrics.No_Code;
             In_Run := False;
          else
             Q2 := Q;
@@ -208,18 +233,26 @@ is
                if Q > From and then Text (Q - 1) /= ' '
                  and then Q2 <= Text'Last and then Text (Q2) /= ' '
                  and then Text (Q2) /= LF
-                 and then Add_Sat (W, Hyphen_W) <= Budget
+                 and then Add_Sat
+                   (Add_Kern (W, Text_Metrics.Kern
+                                   (T, Prev, Character'Pos ('-'))),
+                    Hyphen_W) <= Budget
                then
                   Have_Break := True;
                   B_Last := Q - 1;
                   B_Next := Q2;
-                  B_Width := Add_Sat (W, Hyphen_W);
+                  B_Width := Add_Sat
+                    (Add_Kern (W, Text_Metrics.Kern
+                                    (T, Prev, Character'Pos ('-'))),
+                     Hyphen_W);
                   B_Spaces := Spaces;
                   B_Hyphen := True;
                end if;
             else
                A := Text_Metrics.Advance (T, F, C);
-               if Add_Sat (W, A) > Budget and then Q > From then
+               K := Text_Metrics.Kern (T, Prev, C);
+               if Add_Sat (Add_Kern (W, K), A) > Budget and then Q > From
+               then
                   exit;
                end if;
                if not Hyphenation.Is_Letter (C) then
@@ -228,10 +261,12 @@ is
                   In_Run := True;
                   Run_First := Q;
                   Run_W := W;
+                  Run_Before := Prev;
                   Run_Spaces := Spaces;
                   Run_Shy := False;
                end if;
-               W := Add_Sat (W, A);
+               W := Add_Sat (Add_Kern (W, K), A);
+               Prev := C;
                if Breaks_After (C) and then Q > From
                  and then Text (Q - 1) /= ' '
                  and then Q2 <= Text'Last and then Text (Q2) /= ' '
@@ -284,7 +319,7 @@ is
             if not Shy and then Run_Last >= Run_First then
                Hyphenate_Run
                  (T, F, G.Hyph.all, Text, Run_First, Run_Last, Run_W,
-                  Hyphen_W, Budget, H_Last, H_Width, Found);
+                  Run_Before, Hyphen_W, Budget, H_Last, H_Width, Found);
                if Found then
                   L.Last := H_Last;
                   L.Next := H_Last + 1;

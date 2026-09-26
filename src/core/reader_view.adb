@@ -7,6 +7,8 @@ package body Reader_View
 is
    use type UTF8.Code_Point;
 
+   Soft_Hyphen : constant UTF8.Code_Point := 16#AD#;
+
    Foot_Size : constant := 20;
    Menu_Size : constant := 26;
 
@@ -36,7 +38,8 @@ is
 
    --  One line, with the extra width of a justified line spread over its
    --  spaces (the first Extra mod Spaces spaces get one pixel more), and the
-   --  hyphen of a word broken at its end.
+   --  hyphen of a word broken at its end.  Kerned as Page_Layout measured
+   --  it.
    procedure Draw_Line
      (Fr       : in out Mono_Frame.Frame;
       F        : Truetype.Font;
@@ -63,6 +66,7 @@ is
       X       : Natural := Margin_X + (if L.Indented then G.Indent else 0);
       P       : Positive := L.First;
       C       : UTF8.Code_Point;
+      Prev    : UTF8.Code_Point := Text_Metrics.No_Code;
       Gl      : Natural;
       --  The cache's own advance for the glyph it drew.  Unused on
       --  purpose: the pen follows T's advances, which are what the line was
@@ -95,9 +99,15 @@ is
                X := Add_Sat (X, 1);
                Rest := Rest - 1;
             end if;
+            Prev := Text_Metrics.No_Code;
             P := P + 1;
          else
             UTF8.Next_Code (Text, P, C);
+            --  A soft hyphen is invisible and does not break the kerning.
+            if C /= Soft_Hyphen then
+               X := Add_Kern (X, Text_Metrics.Kern (T, Prev, C));
+               Prev := C;
+            end if;
             Gl := Text_Metrics.Glyph (T, F, C);
             if Gl /= 0 then
                Glyph_Cache.Draw
@@ -109,6 +119,7 @@ is
       end loop;
 
       if L.Hyphen then
+         X := Add_Kern (X, Text_Metrics.Kern (T, Prev, Character'Pos ('-')));
          Gl := Text_Metrics.Glyph (T, F, Character'Pos ('-'));
          if Gl /= 0 then
             Glyph_Cache.Draw
