@@ -22,8 +22,8 @@ grayscale, frontlight control.
 
 ## Constraints
 
-- As much Ada as possible. Data-transforming code is written in the **SPARK
-  subset** (`SPARK_Mode => On`), but **no proofs are run**.
+- As much Ada as possible. Data-transforming code is written in **SPARK**
+  (`SPARK_Mode => On`) and proved free of run-time errors (silver).
 - The text engine (`Glyphs`, `Truetype`, `Truetype.Raster`, `Text_Raster`) is
   **copied into sxos** from `../epd_common` and owned here; sxos may diverge.
   The runtime and HAL still come from `../ada_esp32s3`.

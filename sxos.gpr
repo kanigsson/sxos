@@ -3,8 +3,8 @@ with "../ada_esp32s3/libs/esp32s3_hal/esp32s3_hal.gpr";
 with "vendor/inflate.gpr";
 
 --  sxos, a bare-metal e-reader for the Xteink X4 Pro (ESP32-S3).  The
---  portable units in src/core are written in the SPARK subset, but no proofs
---  are run; src/device holds the hardware drivers.
+--  portable units in src/core are SPARK, proved free of run-time errors
+--  through the host preview project; src/device holds the hardware drivers.
 project SXOS is
    for Target use "xtensa-esp32-elf";
    for Runtime ("Ada") use Esp32s3_Rts.Runtime_Path;

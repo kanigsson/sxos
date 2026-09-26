@@ -248,6 +248,10 @@ is
                end if;
             end if;
             exit when not Ok;
+            --  The block just read extends the initialised prefix.
+            pragma Assert (Into (Dest .. Dest + (N - 1))'Initialized);
+            pragma Assert
+              (Into (Into'First .. Dest + (N - 1))'Initialized);
             Count := Count + N;
             Pos := Pos + Unsigned_32 (N);
          end;

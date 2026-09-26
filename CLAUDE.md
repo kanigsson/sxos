@@ -14,9 +14,18 @@ Only what is not guessable from the tree is recorded here.
 - **No machine-specific paths** in tracked files (home directories, `/tmp`,
   backup locations, device serials). Referring to sibling checkouts such as
   `../ada_esp32s3` is fine.
-- **SPARK subset, no proofs.** Data-transforming units (parsers, layout, UI
-  state, framebuffer maths) are `SPARK_Mode => On` and must stay in the subset,
-  but nobody runs gnatprove here — don't add proof-only scaffolding.
+- **SPARK silver.** Data-transforming units (parsers, layout, UI state,
+  framebuffer maths) are `SPARK_Mode => On` and proved free of run-time
+  errors at `--level=2`; keep them that way (proof command below). Never
+  make a run green by suppressing a check; the only suppressions are four
+  flow warnings about deliberately ignored `out` values, each with a
+  `Reason`. Not SPARK, by design: `Book_Source`, `Reader`, `Hyphen_Loader`,
+  `Font_Loader` (they allocate) and the bodies of `Deflate` and
+  `Glyph_Cache` (address overlay, heap pool).
+- The preview build has `-gnata`, so contracts and loop invariants run
+  there: keep them cheap (no whole-buffer quantifiers in per-byte loops).
+- Contracts assume untrusted input: fonts, EPUBs and the FAT volume come
+  from the card, so malformed data must be rejected, not asserted away.
 - The text engine (`Truetype`, `Truetype.Raster`, `Glyphs`, `Text_Raster`) is
   a **copy** from `../epd_common`, owned by sxos. Diverge freely; do not
   sync it back.
@@ -76,14 +85,18 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
   `preview.sh CARD.img settings out.pgm [SIZE]`; `PREVIEW_FACE=<file in
   /Fonts>` sets the reading face for both (default: the interface face).
   `preview.sh CARD sleep out.pgm [TITLE]` renders the sleep screen.
-- SPARK **legality** (not proof) check of the core — gnatprove from Alire
-  (`alr get gnatprove` / the Alire releases dir) with native GNAT on `PATH`:
+- Proof of the core — gnatprove FSF 16.1 from Alire (`alr get gnatprove` /
+  the Alire releases dir) with native GNAT 16 on `PATH`:
 
   ```sh
-  (cd preview && gnatprove -P preview.gpr --mode=check_all -j0)
+  (cd preview && gnatprove -P preview.gpr --no-subprojects --level=2 -j16)
   ```
 
-  `--mode=check` is only a partial check; use `check_all`.
+  It must end in "all checks proved" with no warnings. `--no-subprojects`
+  leaves Inflate/Ore to spark-world, where they are proved. Generics are
+  proved through the SPARK instances in `preview/` (`Image_FS`,
+  `Image_Scan`, `Sim_Store`). Avoid `-j0`: on a 32-core host it once left
+  gprbuild spinning in phase 2.
 - Never compile with `-gnatW8`: text is raw UTF-8 in `String`.
 
 ## Memory

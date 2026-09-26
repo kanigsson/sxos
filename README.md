@@ -3,8 +3,8 @@
 A minimal e-reader firmware for the Xteink X4 Pro (ESP32-S3R8, 800×480 1 bpp
 UC8279 panel, microSD, GT911 touch), written in Ada on a bare-metal runtime:
 no ESP-IDF, no FreeRTOS, no Wi-Fi. Data-transforming code (parsers, layout,
-UI state, framebuffer maths) is written in the SPARK subset; no proofs are
-run.
+UI state, framebuffer maths) is written in SPARK and proved free of
+run-time errors (SPARK silver).
 
 ## Features
 
