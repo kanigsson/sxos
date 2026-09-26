@@ -363,7 +363,10 @@ is
    Double_Hyphen  : constant := 3_000;   --  two flagged lines in a row
    Final_Hyphen   : constant := 5_000;   --  the second-last line flagged
    Adjacent       : constant := 3_000;   --  fitness two classes apart
-   Max_Badness    : constant := 10_000;
+   --  Badness grows as 100 r**3 up to here, and by a pixel of excess a
+   --  point beyond: unlike TeX's, it is not capped, so that of two lines
+   --  too loose to justify, the shorter still costs more.
+   Max_Badness    : constant := 10_000_000;
    --  A first try without hyphenation points takes lines up to this.
    Pretolerance   : constant := 100;
 
@@ -373,26 +376,26 @@ is
    function Add_Cost (A, B : Demerits) return Demerits is
      (if B <= Infinite - A then A + B else Infinite);
 
-   --  100 (Excess / Capacity)**3, capped at Max_Badness.
+   --  100 (Excess / Capacity)**3, or Max_Badness + Excess beyond
+   --  Max_Badness (and for a line with no space to stretch).
    function Badness (Excess : Px; Capacity : Long_Long_Integer)
      return Natural
      with Pre  => Capacity >= 0,
-          Post => Badness'Result <= Max_Badness
+          Post => Badness'Result <= Max_Badness + Max_Px
    is
       E : constant Long_Long_Integer := Long_Long_Integer (Excess);
+      B : Long_Long_Integer;
    begin
       if E = 0 then
          return 0;
-      elsif Capacity = 0 or else E > 5 * Capacity then
-         return Max_Badness;
+      elsif Capacity = 0 or else E > 100 * Capacity then
+         return Max_Badness + Excess;
       elsif Capacity > 5 * E then
          return 0;
-      else
-         pragma Assert (Capacity <= 5 * Max_Px);
-         return Natural
-           (Long_Long_Integer'Min
-              (Max_Badness, 100 * E * E * E / (Capacity * Capacity * Capacity)));
       end if;
+      pragma Assert (Capacity <= 5 * Max_Px);
+      B := 100 * E * E * E / (Capacity * Capacity * Capacity);
+      return (if B > Max_Badness then Max_Badness + Excess else Natural (B));
    end Badness;
 
    --  The hyphenation points of the run of letters starting at Q, before
@@ -620,7 +623,7 @@ is
 
    --  Choose the cheapest set of W.Brk (0 .. N) with no line worse than
    --  Tolerance, and chain it through Succ from W.Brk (0).  Found is False
-   --  when there is none: some word does not fit, or (below Max_Badness)
+   --  when there is none: some word does not fit, or (below Natural'Last)
    --  every set has a line that is too loose.
    procedure Choose
      (G         : Geometry;
@@ -672,7 +675,7 @@ is
                        else Decent);
             end if;
             if Bad <= Tolerance then
-               D := Demerits ((Line_Penalty + Bad) ** 2);
+               D := Demerits (Line_Penalty + Bad) ** 2;
                if W.Brk (Jx).Penalty > 0 then
                   D := Add_Cost
                     (D, Demerits (Natural'Min (W.Brk (Jx).Penalty, 2**15))
@@ -758,7 +761,7 @@ is
          Scan_Paragraph (T, F, G, Text, PS, PE, True, W, N, Ok);
       end if;
       if not Found and then Ok then
-         Choose (G, Space_W, N, Max_Badness, W, Found);
+         Choose (G, Space_W, N, Natural'Last, W, Found);
       end if;
       if Found then
          W.Optimal := True;

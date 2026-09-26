@@ -299,7 +299,9 @@ Confirmed on the device:
 - **Paragraphs are set as a whole** (Knuth–Plass, simplified; runs on
   the device, but slowly): `Page_Layout` lists a paragraph's breaks, then a dynamic
   program picks the set with the least demerits: badness `100 r³` of
-  each line's stretch ratio (spaces stretch by `Stretch_Of` = ½ space
+  each line's stretch ratio (not capped as in TeX, which rejects lines
+  over its tolerance instead: capped, two hopelessly loose lines cost the
+  same and the program chose the shorter one freely) (spaces stretch by `Stretch_Of` = ½ space
   per unit of `r` and may shrink by `Shrink_Of` = ⅓ space), a penalty per
   hyphen, more for two hyphenated lines in a row or a hyphenated
   second-last line, and for a loose line next to a tight one. As in TeX,
@@ -335,7 +337,9 @@ Confirmed on the device:
   in Liang hyphenation of every word in the second try. On the device it
   is much worse (first run, 26 px Literata, German): reopening Steppenwolf
   at chapter 5 (78 pages) took 2.5 s, and drawing a page 125 ms.
-  `preview/obj/reader_check` walks every book forward and back.
+  `preview/obj/reader_check` walks every book forward and back;
+  `book_check --layout` re-measures every line as `Draw_Line` does and
+  counts lines the next word would have fitted on.
 
 ### Book sources (M4)
 

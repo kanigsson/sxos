@@ -9,8 +9,12 @@
 --                                  Reader at SIZE px, hyphenated in the
 --                                  chapter's language (Language_Guess, else
 --                                  the book's metadata) unless nohyph, and
---                                  report the time
+--                                  report the time; check every line
+--                                  against Reader_View's measure, and
+--                                  report lines the next word would fit
+--                                  on.  PREVIEW_FACE names the face.
 with Ada.Calendar; use Ada.Calendar;
+with Ada.Environment_Variables;
 with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Text_IO; use Ada.Text_IO;
 
@@ -28,6 +32,7 @@ with Reading_Settings;
 with Shelf;
 with Text_Metrics;
 with Truetype;
+with UTF8;
 
 procedure Book_Check is
    package Books is new Book_Source (Image_FS, Image_Scan.Books_Folder);
@@ -46,6 +51,98 @@ procedure Book_Check is
    Starts  : Page_Layout.Offset_Array (1 .. 16_384);
    type Workspace_Access is access Page_Layout.Workspace;
    Work    : constant Workspace_Access := new Page_Layout.Workspace;
+
+   Short : Natural := 0;
+
+   --  Measure every line of every page of Text as Reader_View.Draw_Line
+   --  draws it, and report lines whose Width or Spaces disagree with the
+   --  layout's, and lines that end short although the next word fits.
+   procedure Verify (Text : String; Count : Natural; Bad : in out Natural)
+   is
+      use type UTF8.Code_Point;
+      Space_W  : constant Natural :=
+        Text_Metrics.Advance (Metrics, Font, Character'Pos (' '));
+      Hyphen_W : constant Natural :=
+        Text_Metrics.Advance (Metrics, Font, Character'Pos ('-'));
+      N : Positive;
+   begin
+      for Pg in 1 .. Count loop
+         Page_Layout.Page_Lines
+           (Metrics, Font, Geo, Text, Starts (Pg), Work.all, N);
+         for I in 1 .. N loop
+            declare
+               L    : constant Page_Layout.Line := Work.Lines (I);
+               X    : Integer := 0;
+               Sp   : Natural := 0;
+               P    : Positive := L.First;
+               C    : UTF8.Code_Point;
+               Prev : UTF8.Code_Point := Text_Metrics.No_Code;
+            begin
+               while P <= L.Last loop
+                  if Text (P) = ' ' then
+                     X := X + Space_W;
+                     Sp := Sp + 1;
+                     Prev := Text_Metrics.No_Code;
+                     P := P + 1;
+                  else
+                     UTF8.Next_Code (Text, P, C);
+                     if C /= 16#AD# then
+                        X := X + Text_Metrics.Kern (Metrics, Prev, C)
+                          + Text_Metrics.Advance (Metrics, Font, C);
+                        Prev := C;
+                     end if;
+                  end if;
+               end loop;
+               if L.Hyphen then
+                  X := X + Text_Metrics.Kern (Metrics, Prev, Character'Pos ('-'))
+                    + Hyphen_W;
+               end if;
+               --  The next word, if the line ends at a space.
+               if not L.Para_End and then L.Last < Text'Last
+                 and then Text (L.Last + 1) = ' '
+               then
+                  declare
+                     Budget : constant Integer :=
+                       Geo.Col_Width - (if L.Indented then Geo.Indent else 0);
+                     Y      : Integer := X + Space_W;
+                     Q      : Positive := L.Next;
+                  begin
+                     Prev := Text_Metrics.No_Code;
+                     while Q <= Text'Last and then Text (Q) /= ' '
+                       and then Text (Q) /= ASCII.LF
+                     loop
+                        UTF8.Next_Code (Text, Q, C);
+                        Y := Y + Text_Metrics.Kern (Metrics, Prev, C)
+                          + Text_Metrics.Advance (Metrics, Font, C);
+                        Prev := C;
+                     end loop;
+                     if Y <= Budget then
+                        Short := Short + 1;
+                        if Short <= 10 then
+                           Put_Line ("    short line (" & X'Image & ","
+                                     & Y'Image & " of" & Budget'Image
+                                     & "): [" & Text (L.First .. L.Last)
+                                     & "] next [" & Text (L.Next .. Q - 1)
+                                     & "]");
+                        end if;
+                     end if;
+                  end;
+               end if;
+               if X /= L.Width or else Sp /= L.Spaces then
+                  Bad := Bad + 1;
+                  if Bad <= 10 then
+                     Put_Line ("    line width" & L.Width'Image & " spaces"
+                               & L.Spaces'Image & ", measured" & X'Image
+                               & Sp'Image & ": [" & Text (L.First .. L.Last)
+                               & "]");
+                  end if;
+               end if;
+            end;
+         end loop;
+      end loop;
+   end Verify;
+
+   Mismatches : Natural := 0;
 
    procedure Check (Name : String) is
       T0      : constant Time := Clock;
@@ -96,6 +193,8 @@ procedure Book_Check is
                      Work.all, Starts, Count, Complete);
                   Lay_T := Lay_T + (Clock - T1);
                   Slowest := Duration'Max (Slowest, Clock - T1);
+                  Verify (Books.Text (B) (1 .. Books.Text_Last (B)), Count,
+                          Mismatches);
                   Pages := Pages + Count;
                   Most := Natural'Max (Most, Count);
                   if not Complete then
@@ -153,15 +252,21 @@ begin
       declare
          package Fonts is new Font_Loader (Image_FS, Image_Scan.Fonts_Folder);
          Faces : Font_Catalog.List;
+         Face  : Font_Catalog.Count_Type;
          Ok    : Boolean;
          Size  : constant Positive :=
            (if Argument_Count >= 3 then Positive'Value (Argument (3))
             else Reading_Settings.Default_Size);
       begin
          Image_Scan.Scan_Fonts (V, Faces, Scan);
-         Ok := Font_Catalog.Default (Faces) /= 0;
+         Face := Font_Catalog.Default (Faces);
+         if Ada.Environment_Variables.Exists ("PREVIEW_FACE") then
+            Face := Font_Catalog.Find
+              (Faces, Ada.Environment_Variables.Value ("PREVIEW_FACE"));
+         end if;
+         Ok := Face /= 0;
          if Ok then
-            Fonts.Load (V, Faces, Font_Catalog.Default (Faces), Font, Ok);
+            Fonts.Load (V, Faces, Face, Font, Ok);
          end if;
          if not Ok then
             Put_Line ("no usable font");
@@ -182,4 +287,8 @@ begin
    for I in 1 .. L.Count loop
       Check (Shelf.Name (L, I));
    end loop;
+   if Layout then
+      Put_Line ("lines measured differently:" & Mismatches'Image);
+      Put_Line ("short lines (the next word fits):" & Short'Image);
+   end if;
 end Book_Check;
