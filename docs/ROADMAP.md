@@ -25,6 +25,14 @@ is in [`design.md`](design.md).
   need their own table or a larger one. Kerning is also only whole pixels,
   like the advances: fractional pen positions would need layout widths in
   sub-pixel units.
+- **Line breaking is too slow on the device** (`design.md`, "Reader and
+  layout": 2.5 s to open a chapter, 125 ms to draw a page). Profile
+  first; candidates: cache Liang points per word for the chapter
+  (a direct-mapped cache hits 15–70 % of hyphenatable words on the test
+  books), or find children in the hyphenation trie faster than its
+  sibling lists. Then tune: the constants in `Page_Layout` are TeX's,
+  scaled; a cost for a very short last line (a lone "son?" after
+  "Wat-") and for a hyphen at the end of a page are not there yet.
 - **Margins and line spacing** as settings. They are fixed ratios in
   `Page_Layout.Make` and `Reader_View` today.
 

@@ -11,6 +11,10 @@ package body Reader is
    Starts : constant Offset_Array_Access :=
      new Page_Layout.Offset_Array (1 .. Max_Pages);
 
+   --  Page_Layout's workspace: large, so on the heap.
+   type Workspace_Access is access Page_Layout.Workspace;
+   Work : constant Workspace_Access := new Page_Layout.Workspace;
+
    Book    : Books.Book;
    Opened  : Boolean := False;
    Font    : Truetype.Font;
@@ -75,7 +79,7 @@ package body Reader is
          Choose_Language (V);
          Page_Layout.Paginate
            (Metrics, Font, Geo, Books.Text (Book) (1 .. Text_Last),
-            Starts.all, Pages, Complete);
+            Work.all, Starts.all, Pages, Complete);
       end if;
    end Load;
 
@@ -230,7 +234,7 @@ package body Reader is
          Reader_View.Draw_Page
            (Fr, Masks, Grey and not Menu, UI, Font, Metrics, Geo,
             Books.Text (Book) (1 .. Text_Last),
-            Starts (Shown), Title, Batt, Shown, Pages);
+            Starts (Shown), Work.all, Title, Batt, Shown, Pages);
       elsif Loaded /= Books.OK then
          Reader_View.Draw_Message
            (Fr, UI, Title, Batt, "Chapter could not be read: "

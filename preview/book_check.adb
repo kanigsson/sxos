@@ -44,6 +44,8 @@ procedure Book_Check is
    Metrics : Text_Metrics.Table;
    Geo     : Page_Layout.Geometry;
    Starts  : Page_Layout.Offset_Array (1 .. 16_384);
+   type Workspace_Access is access Page_Layout.Workspace;
+   Work    : constant Workspace_Access := new Page_Layout.Workspace;
 
    procedure Check (Name : String) is
       T0      : constant Time := Clock;
@@ -91,7 +93,7 @@ procedure Book_Check is
                   Page_Layout.Paginate
                     (Metrics, Font, Geo,
                      Books.Text (B) (1 .. Books.Text_Last (B)),
-                     Starts, Count, Complete);
+                     Work.all, Starts, Count, Complete);
                   Lay_T := Lay_T + (Clock - T1);
                   Slowest := Duration'Max (Slowest, Clock - T1);
                   Pages := Pages + Count;

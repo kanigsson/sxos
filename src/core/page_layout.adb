@@ -354,45 +354,565 @@ is
       end loop;
    end Break_Line;
 
-   function Page_End
+   --  Setting a paragraph as a whole.
+
+   --  The costs, after TeX's (\linepenalty, \hyphenpenalty, ...), scaled
+   --  down where a column of ~40 characters needs more leeway.
+   Line_Penalty   : constant := 10;
+   Hyphen_Penalty : constant := 50;
+   Double_Hyphen  : constant := 3_000;   --  two flagged lines in a row
+   Final_Hyphen   : constant := 5_000;   --  the second-last line flagged
+   Adjacent       : constant := 3_000;   --  fitness two classes apart
+   Max_Badness    : constant := 10_000;
+   --  A first try without hyphenation points takes lines up to this.
+   Pretolerance   : constant := 100;
+
+   function Diff (A, B : Natural) return Natural is
+     (if A >= B then A - B else 0);
+
+   function Add_Cost (A, B : Demerits) return Demerits is
+     (if B <= Infinite - A then A + B else Infinite);
+
+   --  100 (Excess / Capacity)**3, capped at Max_Badness.
+   function Badness (Excess : Px; Capacity : Long_Long_Integer)
+     return Natural
+     with Pre  => Capacity >= 0,
+          Post => Badness'Result <= Max_Badness
+   is
+      E : constant Long_Long_Integer := Long_Long_Integer (Excess);
+   begin
+      if E = 0 then
+         return 0;
+      elsif Capacity = 0 or else E > 5 * Capacity then
+         return Max_Badness;
+      elsif Capacity > 5 * E then
+         return 0;
+      else
+         pragma Assert (Capacity <= 5 * Max_Px);
+         return Natural
+           (Long_Long_Integer'Min
+              (Max_Badness, 100 * E * E * E / (Capacity * Capacity * Capacity)));
+      end if;
+   end Badness;
+
+   --  The hyphenation points of the run of letters starting at Q, before
+   --  PE: Points (I) for a break after letter I of the N letters.  N is 0
+   --  when the run is not to be hyphenated: it has a soft hyphen (then only
+   --  those break it), or it is longer than Hyphenation.Max_Word.
+   procedure Word_Points
+     (H      : Hyphenation.Trie;
+      Text   : String;
+      Q, PE  : Positive;
+      Points : out Hyphenation.Break_Array;
+      N      : out Natural)
+     with Pre  => Text'First = 1 and then Text'Last < Positive'Last
+                  and then Q < PE and then PE <= Text'Last + 1
+                  and then Points'First = 1
+                  and then Points'Last = Hyphenation.Max_Word,
+          Post => N <= Hyphenation.Max_Word,
+          Always_Terminates
+   is
+      Max  : constant := Hyphenation.Max_Word;
+      Word : Hyphenation.Code_Array (1 .. Max) := (others => 0);
+      P    : Positive := Q;
+      P2   : Positive;
+      C    : UTF8.Code_Point;
+   begin
+      Points := (others => False);
+      N := 0;
+      while P < PE loop
+         pragma Loop_Invariant (P in Q .. PE - 1 and then N <= Max);
+         pragma Loop_Variant (Increases => P);
+         P2 := P;
+         UTF8.Next_Code (Text, P2, C);
+         if C = Soft_Hyphen or else (N = Max and then Hyphenation.Is_Letter (C))
+         then
+            N := 0;
+            return;
+         end if;
+         exit when not Hyphenation.Is_Letter (C);
+         N := N + 1;
+         Word (N) := C;
+         P := P2;
+      end loop;
+      if N > 0 then
+         Hyphenation.Hyphenate (H, Word (1 .. N), Points (1 .. N));
+      end if;
+   end Word_Points;
+
+   --  List where the paragraph Text (PS .. PE - 1) may break, in W.Brk
+   --  (1 .. N); W.Brk (N) is its end, W.Brk (0) its start.  With Liang, the
+   --  hyphenation points of G.Hyph's patterns too.  Ok is False when there
+   --  are more than Max_Breaks.
+   procedure Scan_Paragraph
+     (T      : Text_Metrics.Table;
+      F      : Truetype.Font;
+      G      : Geometry;
+      Text   : String;
+      PS, PE : Positive;
+      Liang  : Boolean;
+      W      : in out Workspace;
+      N      : out Natural;
+      Ok     : out Boolean)
+     with Pre  => Text'First = 1 and then Text'Last < Positive'Last
+                  and then PS <= PE and then PE <= Text'Last + 1,
+          Post => N <= Max_Breaks and then (if Ok then N >= 1),
+          Always_Terminates
+   is
+      Space_W  : constant Natural :=
+        Text_Metrics.Advance (T, F, Character'Pos (' '));
+      Hyphen_W : constant Natural :=
+        Text_Metrics.Advance (T, F, Character'Pos ('-'));
+      Hyph     : constant Boolean := Liang and then G.Hyph /= null;
+
+      Q      : Positive := PS;
+      Q2     : Positive;
+      R      : Positive;
+      C      : UTF8.Code_Point;
+      K      : Integer;
+      X      : Natural := 0;   --  the paragraph's width so far
+      Sp     : Natural := 0;   --  and its spaces
+      Prev   : UTF8.Code_Point := Text_Metrics.No_Code;
+      --  Breaks Pend .. N start their line at the next visible character.
+      Pend   : Natural := 0;
+
+      --  The letter run the scan is in, its hyphenation points, and the
+      --  letters of it passed.
+      In_Run : Boolean := False;
+      Points : Hyphenation.Break_Array (1 .. Hyphenation.Max_Word) :=
+        (others => False);
+      Run_N  : Natural := 0;
+      Run_I  : Natural := 0;
+
+      procedure Add
+        (Last : Natural; Next : Positive; End_W, Penalty : Natural;
+         Hyphen, Flagged : Boolean)
+        with Pre  => N <= Max_Breaks,
+             Post => N <= Max_Breaks
+      is
+      begin
+         if N = Max_Breaks then
+            Ok := False;
+            return;
+         end if;
+         N := N + 1;
+         W.Brk (N).Last := Last;
+         W.Brk (N).Next := Next;
+         W.Brk (N).End_W := End_W;
+         W.Brk (N).End_Sp := Sp;
+         W.Brk (N).Start_W := End_W;
+         W.Brk (N).Start_Sp := Sp;
+         W.Brk (N).Penalty := Penalty;
+         W.Brk (N).Hyphen := Hyphen;
+         W.Brk (N).Flagged := Flagged;
+         W.Brk (N).Succ := 0;
+         if Pend = 0 then
+            Pend := N;
+         end if;
+      end Add;
+   begin
+      N := 0;
+      Ok := True;
+      W.Brk (0).Last := PS - 1;
+      W.Brk (0).Next := PS;
+      W.Brk (0).End_W := 0;
+      W.Brk (0).Start_W := 0;
+      W.Brk (0).End_Sp := 0;
+      W.Brk (0).Start_Sp := 0;
+      W.Brk (0).Penalty := 0;
+      W.Brk (0).Hyphen := False;
+      W.Brk (0).Flagged := False;
+      W.Brk (0).Cost := (Decent => 0, others => Infinite);
+      W.Brk (0).Succ := 0;
+
+      while Q < PE loop
+         pragma Loop_Invariant (Q in PS .. PE - 1);
+         pragma Loop_Invariant (N <= Max_Breaks and then Pend <= N);
+         pragma Loop_Invariant (Run_N <= Hyphenation.Max_Word);
+         pragma Loop_Variant (Increases => Q);
+         exit when not Ok;
+         if Text (Q) = ' ' then
+            if Q > PS and then Text (Q - 1) /= ' ' then
+               --  A break, unless only spaces follow in the paragraph.
+               R := Q;
+               while R < PE and then Text (R) = ' ' loop
+                  pragma Loop_Invariant (R in Q .. PE - 1);
+                  pragma Loop_Variant (Increases => R);
+                  R := R + 1;
+               end loop;
+               if R < PE then
+                  Add (Q - 1, R, X, 0, False, False);
+               end if;
+            end if;
+            X := Add_Sat (X, Space_W);
+            Sp := Add_Sat (Sp, 1);
+            Prev := Text_Metrics.No_Code;
+            In_Run := False;
+            Run_N := 0;
+            Q2 := Q + 1;
+         else
+            Q2 := Q;
+            UTF8.Next_Code (Text, Q2, C);
+            if C = Soft_Hyphen then
+               --  Invisible, but a break with a hyphen drawn.
+               if Q > PS and then Text (Q - 1) /= ' '
+                 and then Q2 < PE and then Text (Q2) /= ' '
+               then
+                  Add (Q - 1, Q2,
+                       Add_Sat (Add_Kern (X, Text_Metrics.Kern
+                                            (T, Prev, Character'Pos ('-'))),
+                                Hyphen_W),
+                       Hyphen_Penalty, True, True);
+               end if;
+            else
+               K := Text_Metrics.Kern (T, Prev, C);
+               --  The lines after pending breaks start here, without the
+               --  kerning with the character before.
+               if Pend > 0 then
+                  for B in Pend .. N loop
+                     W.Brk (B).Start_W := Add_Kern (X, K);
+                     W.Brk (B).Start_Sp := Sp;
+                  end loop;
+                  Pend := 0;
+               end if;
+               if not Hyphenation.Is_Letter (C) then
+                  In_Run := False;
+                  Run_N := 0;
+               elsif not In_Run then
+                  In_Run := True;
+                  Run_I := 0;
+                  Run_N := 0;
+                  if Hyph then
+                     Word_Points (G.Hyph.all, Text, Q, PE, Points, Run_N);
+                  end if;
+               end if;
+               if In_Run and then Run_I < Natural'Last then
+                  Run_I := Run_I + 1;
+               end if;
+               X := Add_Sat (Add_Kern (X, K), Text_Metrics.Advance (T, F, C));
+               Prev := C;
+               if Breaks_After (C) and then Q > PS
+                 and then Text (Q - 1) /= ' '
+                 and then Q2 < PE and then Text (Q2) /= ' '
+               then
+                  Add (Q2 - 1, Q2, X, Hyphen_Penalty, False, True);
+               elsif In_Run and then Run_I < Run_N
+                 and then Run_I in Points'Range and then Points (Run_I)
+               then
+                  Add (Q2 - 1, Q2,
+                       Add_Sat (Add_Kern (X, Text_Metrics.Kern
+                                            (T, C, Character'Pos ('-'))),
+                                Hyphen_W),
+                       Hyphen_Penalty, True, True);
+               end if;
+            end if;
+         end if;
+         Q := Q2;
+      end loop;
+
+      --  The paragraph's end: its last line takes everything left.
+      Add (PE - 1, (if PE > Text'Last then PE else PE + 1), X, 0,
+           False, False);
+      if N = 0 then
+         Ok := False;
+      end if;
+   end Scan_Paragraph;
+
+   --  Choose the cheapest set of W.Brk (0 .. N) with no line worse than
+   --  Tolerance, and chain it through Succ from W.Brk (0).  Found is False
+   --  when there is none: some word does not fit, or (below Max_Badness)
+   --  every set has a line that is too loose.
+   procedure Choose
+     (G         : Geometry;
+      Space_W   : Natural;
+      N         : Positive;
+      Tolerance : Natural;
+      W         : in out Workspace;
+      Found     : out Boolean)
+     with Pre => N <= Max_Breaks
+   is
+      Sp_W    : constant Px := Natural'Min (Space_W, Max_Px);
+      Stretch : constant Natural := Stretch_Of (Sp_W);
+      Shrink  : constant Natural := Shrink_Of (Sp_W);
+      Budget  : Natural;
+      Wd, Sps : Natural;
+      Cap     : Long_Long_Integer;
+      Bad     : Natural;
+      Fit     : Fitness;
+      D       : Demerits;
+      Total   : Demerits;
+      Best    : Fitness := Decent;
+      J, I    : Natural;
+      J_Fit   : Fitness;
+   begin
+      Found := False;
+      for Jx in 1 .. N loop
+         W.Brk (Jx).Cost := (others => Infinite);
+         for Ix in reverse 0 .. Jx - 1 loop
+            Budget :=
+              (if Ix = 0 then Diff (G.Col_Width, G.Indent) else G.Col_Width);
+            Wd := Diff (W.Brk (Jx).End_W, W.Brk (Ix).Start_W);
+            Sps := Diff (W.Brk (Jx).End_Sp, W.Brk (Ix).Start_Sp);
+            if Wd > Budget then
+               --  Shrink the spaces, as far as they go; lines starting
+               --  earlier only get longer.
+               Cap := Long_Long_Integer (Sps) * Long_Long_Integer (Shrink);
+               exit when Long_Long_Integer (Wd - Budget) > Cap;
+               Bad := Badness (Natural'Min (Wd - Budget, Max_Px), Cap);
+               Fit := (if Bad > 12 then Tight else Decent);
+            elsif Jx = N then
+               --  The last line is not justified.
+               Bad := 0;
+               Fit := Decent;
+            else
+               Cap := Long_Long_Integer (Sps) * Long_Long_Integer (Stretch);
+               Bad := Badness (Natural'Min (Budget - Wd, Max_Px), Cap);
+               Fit := (if Bad > 99 then Very_Loose
+                       elsif Bad > 12 then Loose
+                       else Decent);
+            end if;
+            if Bad <= Tolerance then
+               D := Demerits ((Line_Penalty + Bad) ** 2);
+               if W.Brk (Jx).Penalty > 0 then
+                  D := Add_Cost
+                    (D, Demerits (Natural'Min (W.Brk (Jx).Penalty, 2**15))
+                        ** 2);
+               end if;
+               if W.Brk (Ix).Flagged then
+                  D := Add_Cost
+                    (D, (if Jx = N then Final_Hyphen
+                         elsif W.Brk (Jx).Flagged then Double_Hyphen
+                         else 0));
+               end if;
+               for PF in Fitness loop
+                  if W.Brk (Ix).Cost (PF) < Infinite then
+                     Total := Add_Cost
+                       (Add_Cost (W.Brk (Ix).Cost (PF), D),
+                        (if abs (Fitness'Pos (PF) - Fitness'Pos (Fit)) > 1
+                         then Adjacent else 0));
+                     if Total < W.Brk (Jx).Cost (Fit) then
+                        W.Brk (Jx).Cost (Fit) := Total;
+                        W.Brk (Jx).From (Fit) := Ix;
+                        W.Brk (Jx).From_Fit (Fit) := PF;
+                     end if;
+                  end if;
+               end loop;
+            end if;
+         end loop;
+      end loop;
+
+      for PF in Fitness loop
+         if W.Brk (N).Cost (PF) < W.Brk (N).Cost (Best) then
+            Best := PF;
+         end if;
+      end loop;
+      if W.Brk (N).Cost (Best) = Infinite then
+         return;
+      end if;
+
+      --  Chain the chosen breaks forward.
+      J := N;
+      J_Fit := Best;
+      while J > 0 loop
+         pragma Loop_Invariant (J <= N);
+         pragma Loop_Variant (Decreases => J);
+         I := W.Brk (J).From (J_Fit);
+         if I >= J then
+            return;   --  not a set: never, as From < J
+         end if;
+         W.Brk (I).Succ := J;
+         J_Fit := W.Brk (J).From_Fit (J_Fit);
+         J := I;
+      end loop;
+      Found := True;
+   end Choose;
+
+   --  Set the paragraph Text (PS .. PE - 1) into W: W.Optimal when it could
+   --  be set as a whole, else it is to be set greedily.
+   procedure Set_Paragraph
+     (T      : Text_Metrics.Table;
+      F      : Truetype.Font;
+      G      : Geometry;
+      Text   : String;
+      PS, PE : Positive;
+      W      : in out Workspace)
+     with Pre  => Text'First = 1 and then Text'Last < Positive'Last
+                  and then PS <= PE and then PE <= Text'Last + 1,
+          Post => W.Cached and then W.Para_First = PS
+   is
+      Space_W : constant Natural :=
+        Text_Metrics.Advance (T, F, Character'Pos (' '));
+      N       : Natural;
+      Ok      : Boolean;
+      Found   : Boolean := False;
+   begin
+      W.Cached := True;
+      W.Para_First := PS;
+      W.Optimal := False;
+      W.Count := 0;
+      Scan_Paragraph (T, F, G, Text, PS, PE, False, W, N, Ok);
+      if Ok then
+         Choose (G, Space_W, N, Pretolerance, W, Found);
+      end if;
+      if not Found and then G.Hyph /= null then
+         Scan_Paragraph (T, F, G, Text, PS, PE, True, W, N, Ok);
+      end if;
+      if not Found and then Ok then
+         Choose (G, Space_W, N, Max_Badness, W, Found);
+      end if;
+      if Found then
+         W.Optimal := True;
+         W.Count := N;
+      end if;
+   end Set_Paragraph;
+
+   --  Page_Lines, keeping the paragraph W holds when W.Cached says it is
+   --  for Text.
+   procedure Fill_Page
      (T     : Text_Metrics.Table;
       F     : Truetype.Font;
       G     : Geometry;
       Text  : String;
-      Start : Positive) return Positive
+      Start : Positive;
+      W     : in out Workspace;
+      Count : out Positive)
+     with Pre  => Text'First = 1 and then Text'Last < Positive'Last
+                  and then Start <= Text'Last,
+          Post => Count <= Max_Page_Lines
+                  and then W.Lines (Count).Next in Start + 1 .. Text'Last + 1
    is
-      P : Positive := Start;
-      Y : Natural := 0;
-      L : Line;
+      P      : Positive := Start;
+      PS, PE : Positive;
+      Y      : Natural := 0;
+      I, J   : Natural;
+      Steps  : Natural;
+      Chain  : Boolean;
+      L      : Line;
+      N      : Natural := 0;
+      Full   : Boolean := False;
    begin
+      Count := 1;
       loop
          pragma Loop_Invariant (P in Start .. Text'Last);
+         pragma Loop_Invariant (N < Max_Page_Lines);
+         pragma Loop_Invariant
+           (if N > 0 then Count = N and then W.Lines (N).Next = P);
          pragma Loop_Invariant (Y <= G.Area_Height);
          pragma Loop_Variant (Increases => P);
-         Break_Line (T, F, G, Text, P, L);
-         P := L.Next;
-         Y := Y + G.Line_Height + (if L.Para_End then G.Para_Gap else 0);
-         exit when P > Text'Last or else Y + G.Line_Height > G.Area_Height;
+
+         --  The paragraph P is in.
+         PS := P;
+         while PS > 1 and then Text (PS - 1) /= LF loop
+            pragma Loop_Invariant (PS in 2 .. P);
+            pragma Loop_Variant (Decreases => PS);
+            PS := PS - 1;
+         end loop;
+         PE := P;
+         while PE <= Text'Last and then Text (PE) /= LF loop
+            pragma Loop_Invariant (PE in P .. Text'Last);
+            pragma Loop_Variant (Increases => PE);
+            PE := PE + 1;
+         end loop;
+         if not (W.Cached and then W.Para_First = PS) then
+            Set_Paragraph (T, F, G, Text, PS, PE, W);
+         end if;
+
+         --  The chosen line starting at P, if P starts one.
+         Chain := False;
+         I := 0;
+         if W.Optimal then
+            Steps := 0;
+            while Steps <= W.Count loop
+               pragma Loop_Invariant (I <= Max_Breaks);
+               pragma Loop_Variant (Increases => Steps);
+               if W.Brk (I).Next = P then
+                  Chain := True;
+                  exit;
+               end if;
+               exit when W.Brk (I).Succ not in I + 1 .. W.Count;
+               I := W.Brk (I).Succ;
+               Steps := Steps + 1;
+            end loop;
+         end if;
+
+         --  The paragraph's lines from P on, as far as the page goes.
+         loop
+            pragma Loop_Invariant (P in Start .. Text'Last);
+            pragma Loop_Invariant (N < Max_Page_Lines);
+            pragma Loop_Invariant
+              (if N > 0 then Count = N and then W.Lines (N).Next = P);
+            pragma Loop_Invariant (Y <= G.Area_Height);
+            pragma Loop_Invariant (I <= Max_Breaks);
+            pragma Loop_Variant (Increases => P);
+            if Chain and then W.Brk (I).Succ in I + 1 .. W.Count then
+               J := W.Brk (I).Succ;
+               L := (First    => P,
+                     Last     => W.Brk (J).Last,
+                     Next     => W.Brk (J).Next,
+                     Width    => Diff (W.Brk (J).End_W, W.Brk (I).Start_W),
+                     Spaces   => Diff (W.Brk (J).End_Sp, W.Brk (I).Start_Sp),
+                     Indented => I = 0,
+                     Para_End => J = W.Count,
+                     Hyphen   => W.Brk (J).Hyphen);
+               I := J;
+            else
+               Chain := False;
+               L.Next := P;
+            end if;
+            if not (L.Next > P and then L.Next <= Text'Last + 1
+                    and then L.Last <= Text'Last)
+            then
+               --  Greedily, when the paragraph could not be set as a whole
+               --  or P does not start a line of its set.
+               Chain := False;
+               Break_Line (T, F, G, Text, P, L);
+            end if;
+            N := N + 1;
+            Count := N;
+            W.Lines (N) := L;
+            P := L.Next;
+            Y := Y + G.Line_Height + (if L.Para_End then G.Para_Gap else 0);
+            Full := P > Text'Last or else N = Max_Page_Lines
+                    or else Y + G.Line_Height > G.Area_Height;
+            exit when Full or else L.Para_End;
+         end loop;
+         exit when Full;
       end loop;
-      return P;
-   end Page_End;
+   end Fill_Page;
+
+   procedure Page_Lines
+     (T     : Text_Metrics.Table;
+      F     : Truetype.Font;
+      G     : Geometry;
+      Text  : String;
+      Start : Positive;
+      W     : in out Workspace;
+      Count : out Positive) is
+   begin
+      --  What W holds may be for another text.
+      W.Cached := False;
+      Fill_Page (T, F, G, Text, Start, W, Count);
+   end Page_Lines;
 
    procedure Paginate
      (T        : Text_Metrics.Table;
       F        : Truetype.Font;
       G        : Geometry;
       Text     : String;
+      W        : in out Workspace;
       Starts   : out Offset_Array;
       Count    : out Natural;
       Complete : out Boolean)
    is
       P : Positive := 1;
+      N : Positive;
    begin
       for I in Starts'Range loop   --  not an aggregate: see Glyph_Cache
          Starts (I) := 1;
       end loop;
       Count := 0;
       Complete := True;
+      W.Cached := False;
       while P <= Text'Last loop
          pragma Loop_Invariant (Count <= Starts'Last);
          pragma Loop_Variant (Increases => P);
@@ -402,7 +922,8 @@ is
          end if;
          Count := Count + 1;
          Starts (Count) := P;
-         P := Page_End (T, F, G, Text, P);
+         Fill_Page (T, F, G, Text, P, W, N);
+         P := W.Lines (N).Next;
       end loop;
    end Paginate;
 

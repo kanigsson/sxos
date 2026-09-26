@@ -6,18 +6,27 @@ with Truetype;
 --
 --  The text is what Book_Source hands out: UTF-8 paragraphs separated by LF
 --  (an empty paragraph is a blank line).  A paragraph's first line is
---  indented and paragraphs are spaced by Para_Gap.  Lines break greedily at
+--  indented and paragraphs are spaced by Para_Gap.  Lines may break at
 --  spaces, after a hyphen or dash inside a word, and at a soft hyphen
 --  (U+00AD, which is otherwise invisible); a no-break space (U+00A0) never
---  breaks.  With patterns in Hyph, the word that overflows the line is
---  hyphenated too, unless it has soft hyphens of its own.  A word wider
---  than the column is cut at a code-point boundary.  Widths include the
---  kerning of adjacent characters (Text_Metrics.Kern); a space, and the
---  start of a line, break the chain.
+--  breaks.  With patterns in Hyph, words are hyphenated too, unless they
+--  have soft hyphens of their own.  Widths include the kerning of adjacent
+--  characters (Text_Metrics.Kern); a space, and the start of a line, break
+--  the chain.
 --
---  Every line and page is determined by where it starts, so a page is drawn
---  by setting lines from its start offset again, and a chapter's pages are
---  a table of start offsets (Paginate) built without drawing anything.
+--  A paragraph is set as a whole (Knuth and Plass, simplified): of all the
+--  ways to break it, the one whose lines stretch or shrink their spaces
+--  least, with a cost for hyphens and for a loose line next to a tight
+--  one.  Hyphenation points are only tried when the paragraph cannot be
+--  set well without them.  A paragraph too long for the Workspace, or with
+--  a word wider than the column, is set greedily instead (Break_Line), and
+--  such a word is cut at a code-point boundary.
+--
+--  Every page is determined by where it starts: its first paragraph is set
+--  again from the paragraph's start, and the page takes the lines from
+--  Start on.  So a page is drawn by setting it again (Page_Lines), and a
+--  chapter's pages are a table of start offsets (Paginate) built by the
+--  same procedure without drawing anything.
 package Page_Layout
   with SPARK_Mode => On
 is
@@ -61,14 +70,15 @@ is
       First      : Positive := 1;   --  first byte
       Last       : Natural := 0;    --  last byte; Last < First when empty
       Next       : Positive := 1;   --  where the following line starts
-      Width      : Natural := 0;    --  pixels, without the indent
+      Width      : Natural := 0;    --  pixels, without the indent: may be
+                                    --  more than the column (Shrink_Of)
       Spaces     : Natural := 0;    --  breakable spaces inside the line
       Indented   : Boolean := False;
       Para_End   : Boolean := False;   --  the paragraph's last line
       Hyphen     : Boolean := False;   --  ends in a hyphen not in the text
    end record;
 
-   --  The line starting at From.
+   --  The greedy line starting at From: as many characters as fit.
    procedure Break_Line
      (T    : Text_Metrics.Table;
       F    : Truetype.Font;
@@ -83,17 +93,74 @@ is
                   and then L.Last <= Text'Last,
           Always_Terminates;
 
-   --  Where the page starting at Start ends: the start of the next page, or
-   --  Text'Last + 1.  A page always holds at least one line.
-   function Page_End
+   --  How far a justified line may move its spaces, per space: stretch
+   --  without limit (but at a cost that grows with the cube of the ratio to
+   --  Stretch_Of), shrink down to Shrink_Of less than the natural width.
+   function Stretch_Of (Space_W : Natural) return Natural is (Space_W / 2);
+   function Shrink_Of (Space_W : Natural) return Natural is (Space_W / 3);
+
+   --  The places a paragraph may break, and the cheapest way to reach each
+   --  of them.  Page_Layout's own; large (about 400 KB), so the caller
+   --  keeps one on the heap.
+   Max_Breaks     : constant := 4096;
+   Max_Page_Lines : constant := 256;
+
+   type Fitness is (Tight, Decent, Loose, Very_Loose);
+   Infinite : constant := 2**62;
+   type Demerits is range 0 .. Infinite;
+   type Cost_Array is array (Fitness) of Demerits;
+   type Index_Array is array (Fitness) of Natural;
+   type Fitness_Array is array (Fitness) of Fitness;
+
+   --  A break: the line ending here ends at Last with End_W pixels and
+   --  End_Sp spaces of the paragraph before it (its hyphen included), and
+   --  the line after it starts at Next, at Start_W and Start_Sp.  A line's
+   --  width is its end's End_W less its start's Start_W.
+   type Break is record
+      Last     : Natural := 0;
+      Next     : Positive := 1;
+      End_W    : Natural := 0;
+      Start_W  : Natural := 0;
+      End_Sp   : Natural := 0;
+      Start_Sp : Natural := 0;
+      Penalty  : Natural := 0;
+      Hyphen   : Boolean := False;   --  a hyphen drawn at the break
+      Flagged  : Boolean := False;   --  a hyphen, drawn or in the text
+      --  The cheapest set of the paragraph up to here, per fitness of the
+      --  line ending here, and the break and fitness it comes from.
+      Cost     : Cost_Array := (others => Infinite);
+      From     : Index_Array := (others => 0);
+      From_Fit : Fitness_Array := (others => Decent);
+      Succ     : Natural := 0;       --  the chosen line's end
+   end record;
+
+   type Break_Array is array (0 .. Max_Breaks) of Break;
+   type Line_Array is array (1 .. Max_Page_Lines) of Line;
+
+   type Workspace is record
+      Brk        : Break_Array;
+      Count      : Natural range 0 .. Max_Breaks := 0;
+      Optimal    : Boolean := False;   --  Brk holds the paragraph's set
+      Cached     : Boolean := False;   --  Brk is for the text being set
+      Para_First : Positive := 1;
+      Lines      : Line_Array;
+   end record;
+
+   --  W.Lines (1 .. Count) are the lines of the page starting at Start.  A
+   --  page always holds at least one line; the last one's Next is where
+   --  the next page starts (Text'Last + 1 at the end).
+   procedure Page_Lines
      (T     : Text_Metrics.Table;
       F     : Truetype.Font;
       G     : Geometry;
       Text  : String;
-      Start : Positive) return Positive
+      Start : Positive;
+      W     : in out Workspace;
+      Count : out Positive)
      with Pre  => Text'First = 1 and then Text'Last < Positive'Last
                   and then Start <= Text'Last,
-          Post => Page_End'Result in Start + 1 .. Text'Last + 1;
+          Post => Count <= Max_Page_Lines
+                  and then W.Lines (Count).Next in Start + 1 .. Text'Last + 1;
 
    type Offset_Array is array (Positive range <>) of Positive;
 
@@ -105,6 +172,7 @@ is
       F        : Truetype.Font;
       G        : Geometry;
       Text     : String;
+      W        : in out Workspace;
       Starts   : out Offset_Array;
       Count    : out Natural;
       Complete : out Boolean)

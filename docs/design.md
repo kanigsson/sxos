@@ -291,17 +291,32 @@ Confirmed on the device:
 
 - `Page_Layout` sets a chapter's paragraphs: first-line indent (1.5 em),
   a quarter-line gap between paragraphs, baselines about 1.35 em apart.
-  Lines break greedily at spaces, after a hyphen or dash inside a word and
-  at soft hyphens; U+00A0 never breaks. With patterns loaded from
-  `/Hyphenation`, the word that overflows a line is hyphenated (Liang).
-  Full lines are **justified** (`Reader_View.Justify`), unless a space
-  would stretch beyond `Max_Stretch` times its width; justification was
-  off until hyphenation landed, as ~40 characters a line left large holes.
-- A page is fully determined by its start offset. `Paginate` builds the
-  chapter's page-start table (on the heap, up to 16 384 pages) by a
-  measure-only pass, and drawing re-runs `Page_End` from the start, so
-  drawing and pagination cannot disagree. `Text_Metrics` caches glyph ids
-  and advances for Latin/Greek/Cyrillic/punctuation per (face, size).
+  Lines may break at spaces, after a hyphen or dash inside a word and
+  at soft hyphens; U+00A0 never breaks. Full lines are **justified**
+  (`Reader_View.Justify`), unless a space would stretch beyond
+  `Max_Stretch` times its width; justification was off until hyphenation
+  landed, as ~40 characters a line left large holes.
+- **Paragraphs are set as a whole** (Knuth–Plass, simplified; runs on
+  the device, but slowly): `Page_Layout` lists a paragraph's breaks, then a dynamic
+  program picks the set with the least demerits: badness `100 r³` of
+  each line's stretch ratio (spaces stretch by `Stretch_Of` = ½ space
+  per unit of `r` and may shrink by `Shrink_Of` = ⅓ space), a penalty per
+  hyphen, more for two hyphenated lines in a row or a hyphenated
+  second-last line, and for a loose line next to a tight one. As in TeX,
+  a first try skips the Liang points (patterns from `/Hyphenation`) and is
+  kept if no line is worse than badness 100; otherwise the points are
+  added. A paragraph with more than `Max_Breaks` (4096) breaks, or with a
+  word wider than the column, is set greedily (`Break_Line`). The
+  breaks and costs live in a `Page_Layout.Workspace` (~400 KB, on the
+  heap, owned by `Reader`).
+- A page is fully determined by its start offset: `Page_Lines` sets the
+  paragraph the start is in from its beginning and takes the lines from
+  the start on (greedily for the rest of the paragraph, should the start
+  not be a line start of its set). `Paginate` builds the chapter's
+  page-start table (on the heap, up to 16 384 pages) with it, and drawing
+  calls it again, so drawing and pagination cannot disagree.
+  `Text_Metrics` caches glyph ids and advances for
+  Latin/Greek/Cyrillic/punctuation per (face, size).
 - `Glyph_Cache` keeps rendered 1 bpp glyphs in PSRAM (256 KB pool, dropped
   on a font change). The Library now draws in 12 ms warm (110 ms before).
 - `Reader` (generic over `Fat32`/`Book_Source`, instantiated at library
@@ -314,7 +329,12 @@ Confirmed on the device:
 - Measured on the device: a page draws in 14–25 ms, a DU turn refreshes in
   0.60 s, opening Baskerville at its 200 KB chapter (load, inflate,
   convert, paginate 321 pages) takes 0.40 s. On the host the largest
-  chapter (283 KB of text, 435 pages) paginates in 1.4 ms.
+  chapter (283 KB of text, 435 pages) paginated in 1.4 ms greedily (before
+  kerning). Setting whole paragraphs costs about 4x greedy on the host
+  (Baskerville's 200 KB chapter: 15 ms against 3.6 ms), two thirds of it
+  in Liang hyphenation of every word in the second try. On the device it
+  is much worse (first run, 26 px Literata, German): reopening Steppenwolf
+  at chapter 5 (78 pages) took 2.5 s, and drawing a page 125 ms.
   `preview/obj/reader_check` walks every book forward and back.
 
 ### Book sources (M4)

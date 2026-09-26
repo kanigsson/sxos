@@ -21,14 +21,16 @@ is
    Area_Height : constant := Mono_Frame.Height - Text_Top - Footer;
 
    --  Justify full lines (not a paragraph's last line), unless that would
-   --  stretch a space beyond Max_Stretch times its width.  Needs
+   --  stretch a space beyond Max_Stretch times its width.  A line set
+   --  tighter than its natural width (Page_Layout.Shrink_Of) is always
+   --  drawn at the column's width.  Needs
    --  hyphenation: without it, ~40 characters a line leave justified text
    --  full of holes (German especially).
    Justify     : constant Boolean := True;
    Max_Stretch : constant := 3;
 
-   --  Draw the page of Text starting at Start.  Page and Pages number it
-   --  within the chapter.  With Grey, the book's text is anti-aliased: its
+   --  Draw the page of Text starting at Start, set in W.  Page and Pages
+   --  number it within the chapter.  With Grey, the book's text is anti-aliased: its
    --  grey pixels are marked in Masks (the rest of the screen is black and
    --  white); Masks is cleared either way.
    procedure Draw_Page
@@ -41,6 +43,7 @@ is
       G     : Page_Layout.Geometry;
       Text  : String;
       Start : Positive;
+      W     : in out Page_Layout.Workspace;
       Title : String;
       Batt  : Status_Bar.Battery;
       Page, Pages : Natural)

@@ -37,9 +37,10 @@ is
    end Image;
 
    --  One line, with the extra width of a justified line spread over its
-   --  spaces (the first Extra mod Spaces spaces get one pixel more), and the
-   --  hyphen of a word broken at its end.  Kerned as Page_Layout measured
-   --  it.
+   --  spaces (the first Extra mod Spaces spaces get one pixel more), or the
+   --  excess of a line set tighter than its natural width taken from them
+   --  the same way, and the hyphen of a word broken at its end.  Kerned as
+   --  Page_Layout measured it.
    procedure Draw_Line
      (Fr       : in out Mono_Frame.Frame;
       Masks    : in out Mono_Frame.Grey_Masks;
@@ -67,6 +68,8 @@ is
       Extra   : Natural;
       Share   : Natural := 0;
       Rest    : Natural := 0;
+      Cut     : Natural := 0;   --  taken from every space
+      Cut_Rest : Natural := 0;  --  and one pixel more from the first ones
       X       : Natural := Margin_X + (if L.Indented then G.Indent else 0);
       P       : Positive := L.First;
       C       : UTF8.Code_Point;
@@ -107,6 +110,13 @@ is
             Share := Extra / L.Spaces;
             Rest := Extra mod L.Spaces;
          end if;
+      elsif L.Spaces > 0 and then L.Width > Budget and then Budget >= 0 then
+         --  Page_Layout shrinks spaces by at most Shrink_Of each.
+         Extra := L.Width - Budget;
+         if Extra / L.Spaces < Space_W then
+            Cut := Extra / L.Spaces;
+            Cut_Rest := Extra mod L.Spaces;
+         end if;
       end if;
 
       while P <= L.Last loop
@@ -117,6 +127,11 @@ is
             if Rest > 0 then
                X := Add_Sat (X, 1);
                Rest := Rest - 1;
+            end if;
+            X := Natural'Max (0, X - Cut);
+            if Cut_Rest > 0 then
+               X := Natural'Max (0, X - 1);
+               Cut_Rest := Cut_Rest - 1;
             end if;
             Prev := Text_Metrics.No_Code;
             P := P + 1;
@@ -165,30 +180,31 @@ is
       G     : Page_Layout.Geometry;
       Text  : String;
       Start : Positive;
+      W     : in out Page_Layout.Workspace;
       Title : String;
       Batt  : Status_Bar.Battery;
       Page, Pages : Natural)
    is
-      --  Page_End decides where the page stops, so drawing and pagination
-      --  can never disagree.
-      Stop : constant Positive := Page_Layout.Page_End (T, F, G, Text, Start);
-      P    : Positive := Start;
-      Y    : Natural := Text_Top;
-      L    : Page_Layout.Line;
+      --  Drawing sets the page again the way Paginate did, so the two can
+      --  never disagree.
+      N : Positive;
+      Y : Natural := Text_Top;
+      L : Page_Layout.Line;
    begin
+      Page_Layout.Page_Lines (T, F, G, Text, Start, W, N);
       Mono_Frame.Clear (Fr);
       Mono_Frame.Clear (Masks);
       Status_Bar.Draw (Fr, UI, Title, Batt);
-      while P < Stop loop
-         Page_Layout.Break_Line (T, F, G, Text, P, L);
-         Draw_Line (Fr, Masks, Grey, F, T, G, Text, L,
-                    Page_Layout.Add_Sat (Y, G.Ascent));
-         --  Page_End stops the page before the lines leave the area, but
-         --  that is not visible from here: add saturating.
+      for I in 1 .. N loop
+         L := W.Lines (I);
+         if L.Last <= Text'Last then
+            Draw_Line (Fr, Masks, Grey, F, T, G, Text, L,
+                       Page_Layout.Add_Sat (Y, G.Ascent));
+         end if;
+         --  The page stops before the lines leave the area, but that is
+         --  not visible from here: add saturating.
          Y := Page_Layout.Add_Sat
            (Y, G.Line_Height + (if L.Para_End then G.Para_Gap else 0));
-         P := L.Next;
-         pragma Loop_Variant (Increases => P);
       end loop;
       Draw_Footer (Fr, UI, Page, Pages);
    end Draw_Page;
