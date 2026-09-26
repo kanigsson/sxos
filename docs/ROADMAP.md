@@ -30,8 +30,8 @@ is in [`design.md`](design.md).
 
 ## Display
 
-- **Grey text on the device.** Written, not yet tried (`design.md`,
-  "Grey text"): measure the page turn, look at the grey, tune the level
+- **Grey text, tuning.** Works on the device (`design.md`, "Grey text"),
+  but the gain over sharp text is slight: measure the page turn, tune the level
   thresholds (`Glyph_Cache`) and stem darkening (`Text_Raster.Grey_Gain_For`),
   and watch ghosting over many turns. Then: a true four-tone bank (FreeInk
   builds one by time-scaling the X3's four-grey waveform, for images; it is
