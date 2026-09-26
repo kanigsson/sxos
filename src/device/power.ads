@@ -1,5 +1,3 @@
-with Interfaces; use Interfaces;
-
 --  The power button, deep sleep and waking up.
 --
 --  Deep sleep follows the X4 Pro's stock and CrossPoint firmware: the
@@ -10,16 +8,16 @@ with Interfaces; use Interfaces;
 --  active-low) wakes the chip through RTC EXT1; waking is a reset, so Main
 --  starts again from the top.
 --
---  A book open when the device went to sleep is remembered in RTC slow
---  memory, which survives deep sleep (not a power cut), so the wake can
---  reopen it.
---
 --  Off is the same deep sleep with a mark in RTC slow memory: the board
 --  has no power latch, so the chip cannot cut its own supply.  A press
 --  while off wakes the chip, but Initialize only lets it boot when the
 --  button is held for Power_On_Hold; otherwise it goes straight back to
---  sleep without touching the panel.  Turning on is a fresh start (the
---  Library), not a resume.
+--  sleep without touching the panel.
+
+--  Which book to reopen at boot is Main's business (it is kept in the
+--  flash store, so it survives a power cut).  Power only guards that
+--  reopening: a book that crashes the reader while it is being opened must
+--  not do so again on every boot.
 package Power is
 
    --  How long the button must be held to turn the reader on, counted
@@ -34,16 +32,13 @@ package Power is
 
    function Button_Down return Boolean;
 
-   --  Whether this boot is a wake from sleep by the power button (not
-   --  turning on from off).
-   function Woke_Up return Boolean;
-
-   --  The book to reopen after a wake (Found False if none, or not a wake).
-   --  Cleared by reading it.
-   procedure Take_Resume (A, B : out Unsigned_32; Found : out Boolean);
-
-   procedure Set_Resume (A, B : Unsigned_32);
-   procedure Clear_Resume;
+   --  Begin_Resume marks, in RTC slow memory, that a book is being
+   --  reopened at boot; End_Resume clears the mark.  Resume_Safe is False
+   --  when the previous boot began that and never ended it: it reset or
+   --  crashed meanwhile.  (A power cut loses the mark, which is fine.)
+   function Resume_Safe return Boolean;
+   procedure Begin_Resume;
+   procedure End_Resume;
 
    --  Wait for the power button to be released, then deep-sleep until it
    --  is pressed (Off: turned on by a long press).  The panel must already

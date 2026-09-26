@@ -74,7 +74,7 @@ is
          --  Full: forget the least recently written position.
          for J in Entry_Index loop
             pragma Loop_Invariant (I <= Max_Entries);
-            if Table (J).K.Kind /= Settings and then Table (J).Stamp < Oldest
+            if Table (J).K.Kind = Position and then Table (J).Stamp < Oldest
             then
                Oldest := Table (J).Stamp;
                I := J;

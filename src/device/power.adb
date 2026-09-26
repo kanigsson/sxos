@@ -1,4 +1,5 @@
 with Ada.Real_Time; use Ada.Real_Time;
+with Interfaces;    use Interfaces;
 
 with ESP32S3.GPIO;
 with ESP32S3.Log; use ESP32S3.Log;
@@ -24,12 +25,11 @@ package body Power is
    Held : constant array (1 .. 6) of ESP32S3.GPIO.Pin_Id :=
      (Rail_Pin, Touch_Pin, Card_Pin, Panel_Rst_Pin, Cool_Pin, Warm_Pin);
 
-   --  RTC slow memory words: a mark, then the book key; the off mark.
+   --  RTC slow memory words: a resume in progress; the off mark.  (Words
+   --  1 and 2 held the book to resume, before it moved to the store.)
    Resume_Mark_Word : constant ESP32S3.RTC.Word_Index := 0;
-   Resume_A_Word    : constant ESP32S3.RTC.Word_Index := 1;
-   Resume_B_Word    : constant ESP32S3.RTC.Word_Index := 2;
    Off_Mark_Word    : constant ESP32S3.RTC.Word_Index := 3;
-   Resume_Mark      : constant Unsigned_32 := 16#5358_4F53#;  --  "SXOS"
+   Resume_Mark      : constant Unsigned_32 := 16#5245_534D#;  --  "RESM"
    Off_Mark         : constant Unsigned_32 := 16#4F46_4621#;  --  "OFF!"
 
    --  The RTC_IO pad registers (GPIO n at TOUCH_PAD0 + 4 n): the sleep puts
@@ -83,7 +83,6 @@ package body Power is
             Deep_Sleep;
          end if;
          ESP32S3.RTC.Write (Off_Mark_Word, 0);
-         Clear_Resume;
       end if;
       for P of Held loop
          ESP32S3.RTC_IO.Release (P);
@@ -92,29 +91,20 @@ package body Power is
                 & (if Was_Off then ", turned on" else ""));
    end Initialize;
 
-   function Woke_Up return Boolean is
-     (Wake = ESP32S3.RTC.Deep_Sleep_GPIO and then not Was_Off);
+   --  After a power-on reset the word holds whatever the RAM came up
+   --  with; a match with the 32-bit mark by chance costs one resume.
+   function Resume_Safe return Boolean is
+     (ESP32S3.RTC.Read (Resume_Mark_Word) /= Resume_Mark);
 
-   procedure Take_Resume (A, B : out Unsigned_32; Found : out Boolean) is
+   procedure Begin_Resume is
    begin
-      Found := Woke_Up
-        and then ESP32S3.RTC.Read (Resume_Mark_Word) = Resume_Mark;
-      A := ESP32S3.RTC.Read (Resume_A_Word);
-      B := ESP32S3.RTC.Read (Resume_B_Word);
-      Clear_Resume;
-   end Take_Resume;
-
-   procedure Set_Resume (A, B : Unsigned_32) is
-   begin
-      ESP32S3.RTC.Write (Resume_A_Word, A);
-      ESP32S3.RTC.Write (Resume_B_Word, B);
       ESP32S3.RTC.Write (Resume_Mark_Word, Resume_Mark);
-   end Set_Resume;
+   end Begin_Resume;
 
-   procedure Clear_Resume is
+   procedure End_Resume is
    begin
       ESP32S3.RTC.Write (Resume_Mark_Word, 0);
-   end Clear_Resume;
+   end End_Resume;
 
    --  Drive Pin to Level and latch it through the sleep.
    procedure Hold (Pin : ESP32S3.GPIO.Pin_Id; Level : Boolean) is

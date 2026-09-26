@@ -10,11 +10,12 @@
 --  are kept in internal flash, and a change re-lays out the open book at
 --  its position.  Each book's position is saved to internal flash
 --  (Device_Store) when the book is closed and a few seconds after the last
---  page turn, and a book reopens where it was left.  A press of the power
---  button, or ten minutes without input, puts the reader into deep sleep
---  with a sleep screen on the glass; the power button wakes it, back into
---  the book that was open.  Holding the power button turns the reader off;
---  holding it again turns it on, into the Library.  The first screen is a
+--  page turn, and a book reopens where it was left.  The open book is also
+--  kept there (Last_Book_Key), and every boot reopens it: waking, turning
+--  on, or after a power cut.  A press of the power button, or ten minutes
+--  without input, puts the reader into deep sleep with a sleep screen on
+--  the glass; the power button wakes it.  Holding the power button turns
+--  the reader off; holding it again turns it on.  The first screen is a
 --  full refresh, opening a book a clean one, and everything else a fast
 --  (DU) update.
 with Ada.Real_Time; use Ada.Real_Time;
@@ -227,6 +228,24 @@ procedure Main is
    function Book_Key (I : Shelf.Index) return Store_Record.Key is
      (Store_Record.Book_Key (Shelf.Name (Books, I), Books.Books (I).Size));
 
+   --  Record I (0: none) as the book to reopen at boot.
+   procedure Remember_Book (I : Natural) is
+      Ok : Boolean;
+   begin
+      if I = 0 then
+         Device_Store.Put (Store_Record.Last_Book_Key, (others => 0), Ok);
+      else
+         declare
+            K : constant Store_Record.Key := Book_Key (I);
+         begin
+            Device_Store.Put (Store_Record.Last_Book_Key, (K.A, K.B, 1, 0), Ok);
+         end;
+      end if;
+      if not Ok then
+         Put_Line ("[store] last book NOT saved");
+      end if;
+   end Remember_Book;
+
    procedure Save_Position is
       T0  : constant Time := Clock;
       Pos : constant Card_Reader.Position := Card_Reader.Where;
@@ -289,6 +308,7 @@ procedure Main is
       end if;
       Open_Index := I;
       Unsaved := False;
+      Remember_Book (I);
       Current := Reading;
       Render_Reader (X4_Display.Clean);
    end Open_Book;
@@ -297,6 +317,7 @@ procedure Main is
    begin
       Save_Position;
       Card_Reader.Close;
+      Remember_Book (0);
       Current := Library;
       Render_Library;
    end Close_Book;
@@ -387,6 +408,7 @@ procedure Main is
       Put (Ms_Since (T0));
       Put_Line (" ms");
       if Result /= Card_Books.OK then
+         Remember_Book (0);
          Current := Library;
          Render_Library;
          return;
@@ -434,10 +456,10 @@ procedure Main is
       end if;
    end Turn;
 
-   --  Show the sleep screen, remember the open book (its position in
-   --  flash, which book it was in RTC memory), and deep-sleep until the
-   --  power button is pressed.  Off: the off screen, no book to resume,
-   --  and only a long press turns the reader on.
+   --  Show the sleep screen, save the open book's position, and
+   --  deep-sleep until the power button is pressed.  Off: the off screen,
+   --  and only a long press turns the reader on.  Either way the open book
+   --  is reopened at the next boot (Last_Book_Key).
    procedure Go_To_Sleep (Why : String; Off : Boolean := False) is
       use type Reading_Settings.Values;
       Book_Open : constant Boolean := Card_Reader.Is_Open;
@@ -449,15 +471,6 @@ procedure Main is
       end if;
       if Book_Open then
          Save_Position;
-      end if;
-      if Book_Open and then not Off then
-         declare
-            K : constant Store_Record.Key := Book_Key (Open_Index);
-         begin
-            Power.Set_Resume (K.A, K.B);
-         end;
-      else
-         Power.Clear_Resume;
       end if;
       Sleep_View.Draw
         (Screen, UI_Font,
@@ -671,22 +684,33 @@ begin
    ESP32S3.GPIO.Configure (Left_Pin, ESP32S3.GPIO.Input, ESP32S3.GPIO.Pull_Up);
    ESP32S3.GPIO.Configure (Right_Pin, ESP32S3.GPIO.Input, ESP32S3.GPIO.Pull_Up);
 
-   --  After a wake from sleep, go back into the book that was open.
+   --  Go back into the book that was open, unless the last boot's attempt
+   --  to do so never finished: then forget it, so the reader cannot get
+   --  stuck resetting on a book that crashes it.
    declare
       use type Store_Record.Key;
-      A, B  : Unsigned_32;
+      Last  : Store_Record.Payload;
       Found : Boolean;
    begin
-      Power.Take_Resume (A, B, Found);
-      if Found then
-         for I in 1 .. Books.Count loop
-            if Book_Key (I) = (Store_Record.Position, A, B) then
-               Selected := I;
-               Open_Book (I);
-               exit;
-            end if;
-         end loop;
+      Device_Store.Lookup (Store_Record.Last_Book_Key, Last, Found);
+      if Found and then Last (3) = 1 then
+         if Power.Resume_Safe then
+            Power.Begin_Resume;
+            for I in 1 .. Books.Count loop
+               if Book_Key (I) = (Store_Record.Position, Last (1), Last (2))
+               then
+                  Selected := I;
+                  Open_Book (I);
+                  exit;
+               end if;
+            end loop;
+         else
+            Put_Line ("[sxos] last boot did not finish reopening its book;"
+                      & " starting in the Library");
+            Remember_Book (0);
+         end if;
       end if;
+      Power.End_Resume;
    end;
    if Current = Library then
       Render_Library;

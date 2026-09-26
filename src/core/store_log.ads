@@ -17,7 +17,8 @@ with Store_Record;
 --
 --  The live records are also kept in RAM (the table below), so lookups do
 --  not touch flash.  The table holds Max_Entries; when a new key does not
---  fit, the least recently written one is forgotten (settings never are).
+--  fit, the least recently written position is forgotten (other records
+--  never are).
 --
 --  Instantiate at library level: the table is the package's state (~10 KB).
 generic

@@ -20,7 +20,7 @@ is
 
    subtype Image is Bytes.Byte_Array (0 .. Size - 1);
 
-   type Kind is (Header, Position, Settings);
+   type Kind is (Header, Position, Settings, Last_Book);
 
    type Key is record
       Kind : Store_Record.Kind := Position;
@@ -36,7 +36,11 @@ is
    --  The one settings record.
    Settings_Key : constant Key := (Kind => Settings, A => 0, B => 0);
 
+   --  The one record naming the book to reopen at boot.
+   Last_Book_Key : constant Key := (Kind => Last_Book, A => 0, B => 0);
+
    --  Positions: (chapter, offset of the page start, 0, 0).
+   --  Last book: (the book's key A, key B, 1, 0), or all 0 for none.
 
    procedure Encode (K : Key; P : Payload; R : out Image);
 

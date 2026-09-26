@@ -11,7 +11,8 @@ is
      (case K is
         when Header   => 0,
         when Position => 1,
-        when Settings => 2);
+        when Settings => 2,
+        when Last_Book => 3);
 
    function Book_Key (Name : String; File_Size : Unsigned_32) return Key is
       H : Unsigned_32 := 2166136261;
@@ -73,6 +74,8 @@ is
          K.Kind := Position;
       elsif R (0) = Record_Mark and then R (1) = Kind_Code (Settings) then
          K.Kind := Settings;
+      elsif R (0) = Record_Mark and then R (1) = Kind_Code (Last_Book) then
+         K.Kind := Last_Book;
       else
          return;
       end if;
