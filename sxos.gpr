@@ -23,7 +23,41 @@ project SXOS is
    package Compiler is
       --  No -gnata on the target: contracts are checked in the host
       --  preview build, which compiles the same core.
-      for Switches ("Ada") use ("-O2", "-g", "-gnat2022");
+      Base := ("-O2", "-g", "-gnat2022");
+      for Switches ("Ada") use Base;
+
+      --  Units proved free of run-time errors (SPARK in spec and body) run
+      --  without checks.  Everything else keeps them, including the
+      --  instances of the proved generics (Fat32, Card_Scan, Store_Log) in
+      --  src/device: an instance takes its instantiating unit's switches.
+      --  A unit that becomes fully SPARK and proved belongs on this list.
+      Proved := Base & ("-gnatp");
+      for Switches ("bitmap_text.adb") use Proved;
+      for Switches ("bytes.ads") use Proved;
+      for Switches ("font_catalog.adb") use Proved;
+      for Switches ("hyphenation.adb") use Proved;
+      for Switches ("language_guess.adb") use Proved;
+      for Switches ("library_view.adb") use Proved;
+      for Switches ("mono_frame.adb") use Proved;
+      for Switches ("opf.adb") use Proved;
+      for Switches ("page_layout.adb") use Proved;
+      for Switches ("plain_text.adb") use Proved;
+      for Switches ("reader_view.adb") use Proved;
+      for Switches ("reading_settings.adb") use Proved;
+      for Switches ("settings_view.adb") use Proved;
+      for Switches ("shelf.adb") use Proved;
+      for Switches ("sleep_view.adb") use Proved;
+      for Switches ("status_bar.adb") use Proved;
+      for Switches ("store_record.adb") use Proved;
+      for Switches ("text_metrics.adb") use Proved;
+      for Switches ("text_raster.adb") use Proved;
+      for Switches ("truetype.adb") use Proved;
+      for Switches ("truetype-raster.adb") use Proved;
+      for Switches ("utf8.adb") use Proved;
+      for Switches ("x4_font.ads") use Proved;
+      for Switches ("xhtml_text.adb") use Proved;
+      for Switches ("xml_scan.adb") use Proved;
+      for Switches ("zip.adb") use Proved;
    end Compiler;
 
    package Linker is

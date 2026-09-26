@@ -54,7 +54,9 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
 
 - The port is positional, not `-p`.
 - The target builds **without `-gnata`**; the host preview keeps it, so
-  contracts are checked there. The shared build script does not recompile
+  contracts are checked there. On the target, the proved units (fully
+  SPARK, listed in `sxos.gpr`) also build with `-gnatp`; the rest keep
+  run-time checks. A unit that becomes fully SPARK goes on that list. The shared build script does not recompile
   on a switch change alone: after editing switches in `sxos.gpr`, build once
   with `FORCE_BUILD=-f ./build.sh`.
 - Flashing uses the Ada `esp_flash` host tool (no esptool). Use

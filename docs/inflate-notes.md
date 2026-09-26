@@ -137,6 +137,21 @@ conversions (`Store_Record.CRC`, `Book_Source.Extract`). That is a small
 change, but it makes the library's byte a third byte type next to the
 caller's and `Interfaces`'.
 
+## 7. No stated proof status, so a client cannot drop its checks
+
+sxos builds its own proved units for the target with `-gnatp`: they are
+proved free of run-time errors, so the checks cost time and code for
+nothing. It would do the same for Inflate, the decompression hot path, but
+it cannot tell from the library which units are proved to that level, at
+which proof level, or whether a given commit still proves cleanly. So
+`vendor/inflate.gpr` keeps the run-time checks on.
+
+**Suggestion:** state the proof status in the library, per unit or for the
+whole library (e.g. "absence of run-time errors, all checks proved at
+`--level=N`"), and keep it true for each commit, for instance by having CI
+run the proof. A project scenario for a release build (`-gnatp`, no
+assertions) would let a client choose it without its own switches.
+
 ## Measurements (for context, not problems)
 
 Host, the 408 KB chapter from `ai-classics.epub`: `Inflate.Raw` 1.2 ms,
