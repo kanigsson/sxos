@@ -28,8 +28,8 @@ run-time errors (SPARK silver).
   it for 1 s turns it on again, into the Library.
 
 Western scripts only (Latin, Greek, Cyrillic); no CJK, no bold/italic, no
-table of contents yet. See [`docs/PLAN.md`](docs/PLAN.md) for the design and
-the candidates for what comes next.
+table of contents yet. See [`docs/design.md`](docs/design.md) for the design
+and [`docs/ROADMAP.md`](docs/ROADMAP.md) for what could come next.
 
 ## The SD card
 

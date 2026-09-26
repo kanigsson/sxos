@@ -21,9 +21,9 @@ is
    Area_Height : constant := Mono_Frame.Height - Text_Top - Footer;
 
    --  Justify full lines (not a paragraph's last line), unless that would
-   --  stretch a space beyond Max_Stretch times its width.  Off: without
-   --  hyphenation, ~40 characters a line leave justified text full of holes
-   --  (German especially); ragged right reads better.
+   --  stretch a space beyond Max_Stretch times its width.  Needs
+   --  hyphenation: without it, ~40 characters a line leave justified text
+   --  full of holes (German especially).
    Justify     : constant Boolean := True;
    Max_Stretch : constant := 3;
 

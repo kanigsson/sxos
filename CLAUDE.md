@@ -1,9 +1,10 @@
 # Working in this repo
 
 Bare-metal Ada e-reader for the Xteink X4 Pro (ESP32-S3, UC8279 800×480 1 bpp
-SPI panel, SDMMC card, GT911 touch). No ESP-IDF, no FreeRTOS, no Wi-Fi. The
-plan, milestones and **current status / next steps** are in `docs/PLAN.md`;
-hardware findings in `docs/`; the test card in `docs/test-card.md`.
+SPI panel, SDMMC card, GT911 touch). No ESP-IDF, no FreeRTOS, no Wi-Fi. How it
+works is in `docs/design.md`, candidates for what comes next in
+`docs/ROADMAP.md`; hardware findings in `docs/`; the test card in
+`docs/test-card.md`.
 
 Only what is not guessable from the tree is recorded here.
 
@@ -140,7 +141,7 @@ fragmented chain.
   after `Fast_Updates_Per_Clean` fast updates in a row. Ask for `Full` or
   `Clean` only for a deliberate clean screen (e.g. opening a book).
 - The SD card is **read-only** by design; persistent state goes to internal
-  flash (see `docs/PLAN.md`).
+  flash (see `docs/design.md`, "Store").
 - **Internal flash writes** (`Int_Flash`): anything that runs while the
   caches are suspended must be in IRAM/DRAM/ROM — no `case` (jump tables
   go to flash `.rodata`), no run-time checks, no PSRAM buffers. Check the
