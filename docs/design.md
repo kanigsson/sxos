@@ -10,7 +10,9 @@ bare-metal Ada on the ESP32-S3, no ESP-IDF, no Wi-Fi. What comes next is in
   *Settings*. The device boots into the Library.
 - **Formats:** EPUB and plain TXT, both decoded on the device.
 - **Font:** TrueType files from `/Fonts` on the SD card, rasterised on the
-  device. Western scripts only (Latin, Greek, Cyrillic); no CJK.
+  device. Western scripts (Latin, Greek, Cyrillic); Korean in progress
+  (`ROADMAP.md`, "Korean"): Hangul is set with a Korean reading face,
+  but a face lacking a character draws nothing (no fallback yet).
 - **Navigation:** open a book from the Library; return from the Reader to the
   Library. The last position per book survives power-off.
 - **Settings:** one screen, reachable from both Library and Reader: reading
@@ -19,7 +21,7 @@ bare-metal Ada on the ESP32-S3, no ESP-IDF, no Wi-Fi. What comes next is in
 - **Battery indicator** on every screen.
 - **Sleep and off** on the power button.
 
-Not supported: Wi-Fi, CJK, bold/italic, TOC navigation, frontlight
+Not supported: Wi-Fi, Chinese and Japanese, bold/italic, TOC navigation, frontlight
 control.
 
 ## Constraints
@@ -292,7 +294,9 @@ Confirmed on the device:
 - `Page_Layout` sets a chapter's paragraphs: first-line indent (1.5 em),
   a quarter-line gap between paragraphs, baselines about 1.35 em apart.
   Lines may break at spaces, after a hyphen or dash inside a word and
-  at soft hyphens; U+00A0 never breaks. Full lines are **justified**
+  at soft hyphens; U+00A0 never breaks. Between two Hangul syllables
+  (or Hanja, kana: `Page_Layout.Is_Wide`) a line breaks too, without a
+  hyphen, as Korean books do (host only so far). Full lines are **justified**
   (`Reader_View.Justify`), unless a space would stretch beyond
   `Max_Stretch` times its width; justification was off until hyphenation
   landed, as ~40 characters a line left large holes.

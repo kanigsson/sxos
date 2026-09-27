@@ -57,6 +57,15 @@ procedure Book_Check is
    --  Measure every line of every page of Text as Reader_View.Draw_Line
    --  draws it, and report lines whose Width or Spaces disagree with the
    --  layout's, and lines that end short although the next word fits.
+   --  The code point starting at byte P of Text.
+   function Code_At (Text : String; P : Positive) return UTF8.Code_Point is
+      Q : Positive := P;
+      C : UTF8.Code_Point;
+   begin
+      UTF8.Next_Code (Text, Q, C);
+      return C;
+   end Code_At;
+
    procedure Verify (Text : String; Count : Natural; Bad : in out Natural)
    is
       use type UTF8.Code_Point;
@@ -97,21 +106,30 @@ procedure Book_Check is
                   X := X + Text_Metrics.Kern (Metrics, Prev, Character'Pos ('-'))
                     + Hyphen_W;
                end if;
-               --  The next word, if the line ends at a space.
+               --  The next word (or syllable), if the line ends at a space
+               --  or between two syllables.
                if not L.Para_End and then L.Last < Text'Last
-                 and then Text (L.Last + 1) = ' '
+                 and then (Text (L.Last + 1) = ' '
+                           or else (not L.Hyphen
+                                    and then Page_Layout.Breaks_Between
+                                               (Prev, Code_At (Text, L.Next))))
                then
                   declare
                      Budget : constant Integer :=
                        Geo.Col_Width - (if L.Indented then Geo.Indent else 0);
-                     Y      : Integer := X + Space_W;
+                     Y      : Integer :=
+                       X + (if Text (L.Last + 1) = ' ' then Space_W else 0);
                      Q      : Positive := L.Next;
+                     Q2     : Positive;
                   begin
                      Prev := Text_Metrics.No_Code;
                      while Q <= Text'Last and then Text (Q) /= ' '
                        and then Text (Q) /= ASCII.LF
                      loop
-                        UTF8.Next_Code (Text, Q, C);
+                        Q2 := Q;
+                        UTF8.Next_Code (Text, Q2, C);
+                        exit when Page_Layout.Breaks_Between (Prev, C);
+                        Q := Q2;
                         Y := Y + Text_Metrics.Kern (Metrics, Prev, C)
                           + Text_Metrics.Advance (Metrics, Font, C);
                         Prev := C;

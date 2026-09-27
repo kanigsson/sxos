@@ -6,9 +6,11 @@
 --  From the first page, turn forward to the end of the book and back to the
 --  start, checking that both walks visit the same number of pages, that the
 --  position only ever moves one way, and that reopening at a position lands
---  on the same page.
+--  on the same page.  PREVIEW_FACE names the face (default: the
+--  catalogue's).
 with Ada.Calendar; use Ada.Calendar;
 with Ada.Command_Line; use Ada.Command_Line;
+with Ada.Environment_Variables;
 with Ada.Text_IO; use Ada.Text_IO;
 
 with Font_Catalog;
@@ -33,6 +35,7 @@ procedure Reader_Check is
    Status : Image_FS.Mount_Status;
    Scan   : Image_Scan.Scan_Status;
    Faces  : Font_Catalog.List;
+   Face   : Font_Catalog.Count_Type;
    Font   : Truetype.Font;
    Ok     : Boolean;
    L      : Shelf.List;
@@ -134,9 +137,14 @@ begin
       return;
    end if;
    Image_Scan.Scan_Fonts (V, Faces, Scan);
-   Ok := Font_Catalog.Default (Faces) /= 0;
+   Face := Font_Catalog.Default (Faces);
+   if Ada.Environment_Variables.Exists ("PREVIEW_FACE") then
+      Face := Font_Catalog.Find
+        (Faces, Ada.Environment_Variables.Value ("PREVIEW_FACE"));
+   end if;
+   Ok := Face /= 0;
    if Ok then
-      Fonts.Load (V, Faces, Font_Catalog.Default (Faces), Font, Ok);
+      Fonts.Load (V, Faces, Face, Font, Ok);
    end if;
    if not Ok then
       Put_Line ("no usable font");

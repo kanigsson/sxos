@@ -48,3 +48,25 @@ For the TXT paths, add to the image's `/Books`:
 The EPUBs cover a single huge chapter (`ai-classics`: 408 KB of XHTML),
 many tiny ones (Musil: 1664 spine items, one with no manifest entry, and a
 107 KB central directory), and ordinary Gutenberg EPUBs.
+
+## Korean card
+
+A second card for the Korean work (`ROADMAP.md`, "Korean"), kept beside the
+checkout rather than in it.
+
+- `/Books` — 8 public-domain Korean stories and novels from
+  ko.wikisource.org, exported as EPUB 3 by ws-export.wmcloud.org, with the
+  embedded `OPS/fonts/*` (FreeSerif, no Hangul) removed with `zip -d`.
+  이광수 - 무정 (10 chapters, one of 133 KB, 450 distinct Hanja) and
+  김동인 - 운현궁의 봄 (28 chapters) are the large ones.
+- `/Fonts`:
+
+  | Family | Files | Source |
+  |---|---|---|
+  | NanumMyeongjo, NanumGothic | `-Regular`, `-Bold` | `google/fonts` `ofl/`, unmodified; full Hangul, no Hanja |
+  | Noto Sans KR | `-Regular`, `-Bold` | Google Fonts static TTF, subset with `pyftsubset` to Latin, punctuation, symbols, all Hangul and the KS X 1001 Hanja (+ U+3F45 U+6C05 U+7BC8 U+8EFA), no hinting |
+  | DejaVu Serif | `DejaVuSerif.ttf` | Debian `fonts-dejavu` |
+
+Build the image as for the main card:
+`mkfs.fat -C -F 32 -S 512 -s 8 card.img 65536`, then copy `Books/` and
+`Fonts/` with `pyfatfs`.

@@ -249,6 +249,14 @@ is
                   B_Hyphen := True;
                end if;
             else
+               if Breaks_Between (Prev, C) and then Q > From then
+                  Have_Break := True;
+                  B_Last := Q - 1;
+                  B_Next := Q;
+                  B_Width := W;
+                  B_Spaces := Spaces;
+                  B_Hyphen := False;
+               end if;
                A := Text_Metrics.Advance (T, F, C);
                K := Text_Metrics.Kern (T, Prev, C);
                if Add_Sat (Add_Kern (W, K), A) > Budget and then Q > From
@@ -569,6 +577,9 @@ is
                end if;
             else
                K := Text_Metrics.Kern (T, Prev, C);
+               if Breaks_Between (Prev, C) then
+                  Add (Q - 1, Q, X, 0, False, False);
+               end if;
                --  The lines after pending breaks start here, without the
                --  kerning with the character before.
                if Pend > 0 then

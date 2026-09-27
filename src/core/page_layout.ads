@@ -1,18 +1,20 @@
 with Hyphenation;
 with Text_Metrics;
 with Truetype;
+with UTF8;
 
 --  Setting a chapter's text into pages.
 --
 --  The text is what Book_Source hands out: UTF-8 paragraphs separated by LF
 --  (an empty paragraph is a blank line).  A paragraph's first line is
 --  indented and paragraphs are spaced by Para_Gap.  Lines may break at
---  spaces, after a hyphen or dash inside a word, and at a soft hyphen
---  (U+00AD, which is otherwise invisible); a no-break space (U+00A0) never
---  breaks.  With patterns in Hyph, words are hyphenated too, unless they
---  have soft hyphens of their own.  Widths include the kerning of adjacent
---  characters (Text_Metrics.Kern); a space, and the start of a line, break
---  the chain.
+--  spaces, after a hyphen or dash inside a word, at a soft hyphen
+--  (U+00AD, which is otherwise invisible), and between two Hangul
+--  syllables, Hanja or kana (Breaks_Between, without a hyphen); a
+--  no-break space (U+00A0) never breaks.  With patterns in Hyph, words are
+--  hyphenated too, unless they have soft hyphens of their own.  Widths
+--  include the kerning of adjacent characters (Text_Metrics.Kern); a
+--  space, and the start of a line, break the chain.
 --
 --  A paragraph is set as a whole (Knuth and Plass, simplified): of all the
 --  ways to break it, the one whose lines stretch or shrink their spaces
@@ -49,6 +51,20 @@ is
       Para_Gap    : Px := 0;            --  extra space after a paragraph
       Hyph        : Hyphenation.Trie_Ref := null;   --  none: no patterns
    end record;
+
+   --  A character of a script set without word spaces inside, or (Korean)
+   --  whose lines may break inside a word: Hangul syllables and
+   --  compatibility jamo, kana, CJK ideographs.  Punctuation is not wide,
+   --  so no line starts with a closing mark or ends with an opening one.
+   --  Conjoining jamo (U+1100 .. U+11FF) are not either: they combine.
+   function Is_Wide (C : UTF8.Code_Point) return Boolean is
+     (C in 16#3040# .. 16#30FF# | 16#3131# .. 16#318E#
+         | 16#3400# .. 16#4DBF# | 16#4E00# .. 16#9FFF#
+         | 16#AC00# .. 16#D7A3# | 16#F900# .. 16#FAFF#);
+
+   --  A line may break between Left and Right, set side by side.
+   function Breaks_Between (Left, Right : UTF8.Code_Point) return Boolean is
+     (Is_Wide (Left) and then Is_Wide (Right));
 
    --  The reader's proportions for T's face and size, without patterns.
    function Make

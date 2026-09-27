@@ -36,6 +36,31 @@ is in [`design.md`](design.md).
 - **Margins and line spacing** as settings. They are fixed ratios in
   `Page_Layout.Make` and `Reader_View` today.
 
+## Korean
+
+Books and fonts for testing: a Korean card (Wikisource prose, Nanum and
+Noto Sans KR faces) rebuilt as in [`test-card.md`](test-card.md). What
+already works: file names, EPUB parsing, `Language_Guess` ("ko", no
+patterns, so no hyphenation), Hangul drawn with a Korean reading face,
+lines broken between syllables, and Hangul in `Text_Metrics`' table.
+In order:
+
+- **Glyph fallback.** A code point the face lacks draws nothing and has
+  no width: with DejaVu as interface face the Library and the status bar
+  show no Hangul, the default reading face shows only punctuation, and
+  Nanum drops the Hanja (450 distinct ones in 무정). Take missing glyphs
+  from a second face: the reading face when it covers Hangul, else a
+  face from `/Fonts` that does. Needs a face per `Text_Metrics` entry and
+  a third face in `Glyph_Cache`. Faces are 2–4.3 MB and read whole into
+  PSRAM, so avoid loading two large ones.
+- **Glyph cache size.** A chapter of 무정 uses 900–1150 distinct
+  characters; the cache drops everything past 1536 glyphs or 256 KB.
+  Measure on the device, then likely double both.
+- **Settings sample.** The sample text is English; show a Korean line
+  when the face covers Hangul.
+- **Measure on the device:** loading a 3–4 MB face from the card, and
+  PSRAM headroom with a large Korean face and a chapter loaded.
+
 ## Display
 
 - **Grey text, tuning.** Works on the device (`design.md`, "Grey text"),
