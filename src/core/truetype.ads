@@ -41,6 +41,19 @@ is
    --  table lies outside the data.
    procedure Open (Data : Data_Ref; F : out Font; Ok : out Boolean);
 
+   --  Data is a font's cmap table alone, read from the file without the
+   --  rest (to learn which characters a face has without loading it).  F
+   --  answers Glyph_Index, nonzero for a character the face maps; every
+   --  other query on it fails as on a corrupt font.
+   procedure Open_Cmap (Data : Data_Ref; F : out Font; Ok : out Boolean);
+
+   --  The file offset and length of the cmap table, from the start of the
+   --  file (Header: its first bytes, 12 + 16 per table).  Ok is False when
+   --  Header is not an sfnt or its directory has no cmap in it.
+   procedure Find_Cmap
+     (Header : Byte_Array; Offset, Length : out Natural; Ok : out Boolean)
+     with Post => (if Ok then Length > 0);
+
    --  Every value below is a 16-bit field of the file, and the bounds say so:
    --  a client scaling them by a pixel size can then show its arithmetic
    --  fits.

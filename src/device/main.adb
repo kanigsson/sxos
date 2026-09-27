@@ -35,6 +35,7 @@ with Card_Books;
 with Card_Library;
 with Card_Reader;
 with Device_Store;
+with Fallback;
 with Font_Catalog;
 with Font_Loader;
 with Gauge;
@@ -83,6 +84,11 @@ procedure Main is
    Read_Font : Truetype.Font;
    Read_Face : Font_Catalog.Count_Type := 0;
    Read_Data : Bytes.Byte_Array_Access;
+   --  A face loaded only as the fallback (see Fallback), when neither of
+   --  the two above has Hangul; Fb_Face is 0 and Fb_Data null otherwise.
+   Fb_Font   : Truetype.Font;
+   Fb_Face   : Font_Catalog.Count_Type := 0;
+   Fb_Data   : Bytes.Byte_Array_Access;
    Prefs     : Reading_Settings.Values;
    Selected : Natural := 0;
    Touch_OK : Boolean;
@@ -145,8 +151,31 @@ procedure Main is
       end if;
    end Load_UI_Font;
 
-   --  Make Face the reading face, loading it unless it is the interface
-   --  face.  If it does not load, the reading face stays as it was.
+   --  Set the fallback chain for the current faces, loading a face with
+   --  Hangul when neither the interface nor the reading face has it.
+   procedure Choose_Fallback is
+      T0 : constant Time := Clock;
+      Was : constant Font_Catalog.Count_Type := Fb_Face;
+   begin
+      Fonts.Choose_Fallback
+        (Volume, Faces, Fallback.Probe, UI_Font, Read_Font, Read_Face,
+         Fb_Font, Fb_Data, Fb_Face);
+      if Fb_Face /= Was and then Fb_Face /= 0 then
+         Log_Font (Fb_Face, T0, True);
+      end if;
+      Put ("[font] fallback:");
+      Put (Fallback.Count);
+      Put_Line (if Fb_Face /= 0
+                then " faces, " & Font_Catalog.File_Name (Faces, Fb_Face)
+                     & " loaded for it"
+                else " faces");
+   end Choose_Fallback;
+
+   --  Make Face the reading face, loading it unless it is already in
+   --  memory (the interface or the fallback face), and choose the fallback
+   --  again.  Two large faces (Korean ones are 2-4 MB) need not fit side
+   --  by side, so the old reading face is freed first: if the new one does
+   --  not load, the interface face becomes the reading face.
    procedure Set_Read_Face (Face : Font_Catalog.Index; Ok : out Boolean) is
       T0       : constant Time := Clock;
       New_Font : Truetype.Font;
@@ -156,26 +185,43 @@ procedure Main is
       if Face = Read_Face then
          return;
       end if;
-      if Face = UI_Face then
-         New_Font := UI_Font;
-      else
-         Fonts.Load (Volume, Faces, Face, New_Font, New_Data, Ok);
-         Log_Font (Face, T0, Ok);
-         if not Ok then
-            return;
-         end if;
-      end if;
-      --  A later face may be loaded at the freed buffer's address: forget
-      --  the cached glyphs first.
+      --  A later face may be loaded at a freed buffer's address: forget
+      --  the cached glyphs first, and the faces that point there.
       Glyph_Cache.Drop;
+      Fallback.Clear;
       if Read_Data /= null then
          Fonts.Free (Read_Data);
       end if;
-      Read_Font := New_Font;
-      Read_Data := New_Data;
-      Read_Face := Face;
-      Prefs.Face := Reading_Settings.Face_Hash (Faces, Face);
+      Read_Font := UI_Font;
+      Read_Face := UI_Face;
+
+      if Face = UI_Face then
+         null;
+      elsif Face = Fb_Face then
+         --  Already loaded as the fallback: it becomes the reading face.
+         Read_Font := Fb_Font;
+         Read_Data := Fb_Data;
+         Read_Face := Face;
+         Fb_Data := null;
+         Fb_Face := 0;
+      else
+         Fonts.Load (Volume, Faces, Face, New_Font, New_Data, Ok);
+         if not Ok and then Fb_Data /= null then
+            --  Perhaps it did not fit beside the fallback face.
+            Fonts.Free (Fb_Data);
+            Fb_Face := 0;
+            Fonts.Load (Volume, Faces, Face, New_Font, New_Data, Ok);
+         end if;
+         Log_Font (Face, T0, Ok);
+         if Ok then
+            Read_Font := New_Font;
+            Read_Data := New_Data;
+            Read_Face := Face;
+         end if;
+      end if;
+      Prefs.Face := Reading_Settings.Face_Hash (Faces, Read_Face);
       Face_Loaded := True;
+      Choose_Fallback;
    end Set_Read_Face;
 
    --  A screen for when there is no usable font: the 5x7 fallback.
@@ -678,6 +724,9 @@ begin
          end if;
       end if;
       Prefs.Face := Reading_Settings.Face_Hash (Faces, Read_Face);
+      if Fallback.Count = 0 then
+         Choose_Fallback;   --  the default reading face: not chosen yet
+      end if;
       Put ("[settings] " & (if Found then "saved" else "defaults") & ":");
       Put (Prefs.Size);
       Put_Line (" px, " & Font_Catalog.File_Name (Faces, Read_Face));

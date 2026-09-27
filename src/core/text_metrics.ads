@@ -1,4 +1,5 @@
 with Interfaces;
+with Fallback;
 with Truetype;
 with UTF8;
 
@@ -9,6 +10,9 @@ with UTF8;
 --  Korean: CJK symbols and punctuation through the Hangul compatibility
 --  jamo, the Hangul syllables and the halfwidth and fullwidth forms); other
 --  code points, Hanja among them, fall back to the font.
+--
+--  A character the face lacks is taken from the Fallback chain (as it was
+--  when the table was prepared), glyph and advance; it is not kerned.
 --
 --  A space-like code point the face lacks (no-break space, thin space, ...)
 --  is given the space's glyph, so it keeps its width instead of vanishing.
@@ -27,11 +31,17 @@ is
    function Size (T : Table) return Positive;
 
    procedure Prepare (T : in out Table; F : Truetype.Font; Size : Positive)
-     with Post => Text_Metrics.Size (T) = Size;
+     with Global => Fallback.State,
+          Post   => Text_Metrics.Size (T) = Size;
 
-   --  F must be the font T was prepared from.
-   function Glyph
-     (T : Table; F : Truetype.Font; C : UTF8.Code_Point) return Natural;
+   --  F must be the font T was prepared from.  The glyph for C (0 for
+   --  none), and the face it is in: F, or a fallback face.
+   procedure Find
+     (T     : Table;
+      F     : Truetype.Font;
+      C     : UTF8.Code_Point;
+      Found : out Truetype.Font;
+      G     : out Natural);
    function Advance
      (T : Table; F : Truetype.Font; C : UTF8.Code_Point) return Natural;
 
@@ -69,7 +79,11 @@ private
    type Entry_Type is record
       Glyph   : Natural := 0;
       Advance : Natural := 0;
+      --  0: Glyph is F's; else it is in Backups (Source).
+      Source  : Natural range 0 .. Fallback.Max_Faces := 0;
    end record;
+
+   type Face_Array is array (Fallback.Index) of Truetype.Font;
 
    type Entry_Array is array (Slot) of Entry_Type;
 
@@ -90,6 +104,9 @@ private
    type Table is record
       Size    : Positive := 1;
       Entries : Entry_Array;
+      --  The fallback chain when prepared, for what the face lacks.
+      Backups   : Face_Array;
+      N_Backups : Fallback.Count_Type := 0;
       --  Kerning of the tabled pairs (Left * Kern_Slots + Right): in font
       --  units for Kern_Face, when Kern_Valid, and in pixels at Size.
       Kern_Valid  : Boolean := False;

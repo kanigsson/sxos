@@ -70,30 +70,76 @@ is
                           (-128, Long_Long_Integer'Min (127, R)));
    end Kern_Px;
 
+   --  The glyph for C in F, else in the first face of T's chain that has
+   --  it (Source is its place there, 0 for F).
+   procedure Look_Up
+     (T      : Table;
+      F      : Truetype.Font;
+      C      : UTF8.Code_Point;
+      Source : out Natural;
+      G      : out Natural)
+     with Post => Source <= T.N_Backups
+   is
+      use type Truetype.Font;
+   begin
+      Source := 0;
+      G := Truetype.Glyph_Index (F, Unsigned_32 (C));
+      for I in 1 .. T.N_Backups loop
+         exit when G /= 0;
+         if T.Backups (I) /= F then
+            G := Truetype.Glyph_Index (T.Backups (I), Unsigned_32 (C));
+            if G /= 0 then
+               Source := I;
+            end if;
+         end if;
+      end loop;
+   end Look_Up;
+
+   function Face_Of
+     (T : Table; F : Truetype.Font; Source : Natural) return Truetype.Font
+   is (if Source in 1 .. T.N_Backups then T.Backups (Source) else F);
+
    procedure Prepare (T : in out Table; F : Truetype.Font; Size : Positive) is
       use type Truetype.Font;
       Space : constant Natural := Truetype.Glyph_Index (F, 32);
       C     : UTF8.Code_Point;
       G     : Natural;
+      Src   : Natural;
    begin
       T.Size := Size;
+      T.N_Backups := Fallback.Count;
+      for I in 1 .. T.N_Backups loop
+         T.Backups (I) := Fallback.Face (I);
+      end loop;
       for S in Slot loop
          C := Code_Of (S);
-         G := Truetype.Glyph_Index (F, Unsigned_32 (C));
-         if G = 0 and then Is_Space_Like (C) then
-            G := Space;
-         elsif C = Soft_Hyphen then
+         if C = Soft_Hyphen then
             G := 0;   --  invisible; the layout draws a hyphen where it breaks
+            Src := 0;
+         else
+            Look_Up (T, F, C, Src, G);
+            if G = 0 and then Is_Space_Like (C) then
+               G := Space;
+            end if;
          end if;
          T.Entries (S) :=
            (Glyph   => G,
             Advance =>
-              (if G = 0 then 0 else Truetype.Raster.Advance_Px (F, G, Size)));
+              (if G = 0 then 0
+               else Truetype.Raster.Advance_Px (Face_Of (T, F, Src), G, Size)),
+            Source  => Src);
       end loop;
 
       if not T.Kern_Valid or else T.Kern_Face /= F then
+         --  Only F's own glyphs: F's kerning knows nothing of the others.
          for S in Kern_Slot loop
-            T.Kern_Glyphs (S) := Glyph (T, F, Kern_Code (S));
+            declare
+               Sl : constant Integer := Slot_Of (Kern_Code (S));
+            begin
+               T.Kern_Glyphs (S) :=
+                 (if Sl < 0 or else T.Entries (Sl).Source /= 0 then 0
+                  else T.Entries (Sl).Glyph);
+            end;
          end loop;
          Truetype.Kerning_Matrix (F, T.Kern_Glyphs, T.Kern_Units, T.Settled);
          T.Kern_Face := F;
@@ -105,29 +151,37 @@ is
       end loop;
    end Prepare;
 
-   function Glyph
-     (T : Table; F : Truetype.Font; C : UTF8.Code_Point) return Natural
+   procedure Find
+     (T     : Table;
+      F     : Truetype.Font;
+      C     : UTF8.Code_Point;
+      Found : out Truetype.Font;
+      G     : out Natural)
    is
-      S : constant Integer := Slot_Of (C);
+      S   : constant Integer := Slot_Of (C);
+      Src : Natural;
    begin
       if S >= 0 then
-         return T.Entries (S).Glyph;
+         G := T.Entries (S).Glyph;
+         Src := T.Entries (S).Source;
       else
-         return Truetype.Glyph_Index (F, Unsigned_32 (C));
+         Look_Up (T, F, C, Src, G);
       end if;
-   end Glyph;
+      Found := Face_Of (T, F, Src);
+   end Find;
 
    function Advance
      (T : Table; F : Truetype.Font; C : UTF8.Code_Point) return Natural
    is
-      S : constant Integer := Slot_Of (C);
-      G : Natural;
+      S  : constant Integer := Slot_Of (C);
+      Fc : Truetype.Font;
+      G  : Natural;
    begin
       if S >= 0 then
          return T.Entries (S).Advance;
       end if;
-      G := Truetype.Glyph_Index (F, Unsigned_32 (C));
-      return (if G = 0 then 0 else Truetype.Raster.Advance_Px (F, G, T.Size));
+      Find (T, F, C, Fc, G);
+      return (if G = 0 then 0 else Truetype.Raster.Advance_Px (Fc, G, T.Size));
    end Advance;
 
    function Kern (T : Table; Left, Right : UTF8.Code_Point) return Integer

@@ -13,6 +13,8 @@ with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Environment_Variables;
 with Ada.Text_IO; use Ada.Text_IO;
 
+with Bytes;
+with Fallback;
 with Font_Catalog;
 with Font_Loader;
 with Image_Blocks;
@@ -145,6 +147,17 @@ begin
    Ok := Face /= 0;
    if Ok then
       Fonts.Load (V, Faces, Face, Font, Ok);
+   end if;
+   if Ok then
+      declare
+         Fb_Font : Truetype.Font;
+         Fb_Data : Bytes.Byte_Array_Access;
+         Fb_Face : Font_Catalog.Count_Type := 0;
+      begin
+         Fonts.Choose_Fallback
+           (V, Faces, Fallback.Probe, Font, Font, Face,
+            Fb_Font, Fb_Data, Fb_Face);
+      end;
    end if;
    if not Ok then
       Put_Line ("no usable font");

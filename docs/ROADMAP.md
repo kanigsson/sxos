@@ -42,17 +42,17 @@ Books and fonts for testing: a Korean card (Wikisource prose, Nanum and
 Noto Sans KR faces) rebuilt as in [`test-card.md`](test-card.md). What
 already works: file names, EPUB parsing, `Language_Guess` ("ko", no
 patterns, so no hyphenation), Hangul drawn with a Korean reading face,
-lines broken between syllables, and Hangul in `Text_Metrics`' table.
+lines broken between syllables, Hangul in `Text_Metrics`' table, and
+fallback faces (`design.md`, "Fallback faces").
 In order:
 
-- **Glyph fallback.** A code point the face lacks draws nothing and has
-  no width: with DejaVu as interface face the Library and the status bar
-  show no Hangul, the default reading face shows only punctuation, and
-  Nanum drops the Hanja (450 distinct ones in 무정). Take missing glyphs
-  from a second face: the reading face when it covers Hangul, else a
-  face from `/Fonts` that does. Needs a face per `Text_Metrics` entry and
-  a third face in `Glyph_Cache`. Faces are 2–4.3 MB and read whole into
-  PSRAM, so avoid loading two large ones.
+- **Hanja.** The fallback face is the smallest one with Hangul; on the
+  test card that is NanumGothic, which has no Hanja (Noto Sans KR has).
+  With a Nanum reading face, or a non-Korean one, the Hanja of 무정 are
+  missing. Options: prefer a face with Hanja when a book needs them (probe
+  U+4E00 too), or a third face in the chain, at 4 MB of PSRAM.
+- **Proof.** `Fallback` is new and not proved; `Text_Metrics`,
+  `Text_Raster`, `Truetype` and `Page_Layout` changed for Korean.
 - **Glyph cache size.** A chapter of 무정 uses 900–1150 distinct
   characters; the cache drops everything past 1536 glyphs or 256 KB.
   Measure on the device, then likely double both.

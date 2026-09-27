@@ -7,6 +7,8 @@
 --
 --  With a card image, the environment variable PREVIEW_FACE names the
 --  reading face (a file in /Fonts); the default face is the interface face.
+--  A fallback face is chosen as on the device (Font_Loader.Choose_Fallback);
+--  a CARD directory has none.
 --  PREVIEW_GREY=1 draws the reader's text in grey (anti-aliased), shown in
 --  the PGM as four even levels: how grey the panel makes the two grey
 --  levels is up to its waveform (see X4_Display.Show_Grey).
@@ -24,6 +26,9 @@ with Ada.Streams.Stream_IO;
 with Ada.Text_IO; use Ada.Text_IO;
 
 with Ada.Calendar;
+
+with Bytes;
+with Fallback;
 
 with Image_Books;
 with Image_Reader;
@@ -129,6 +134,21 @@ begin
             end if;
             Fonts.Load (Volume, Faces, Read_Face, Read, Ok);
             Put_Line ("reading face: " & Font_Catalog.File_Name (Faces, Read_Face));
+         end if;
+         if Ok then
+            declare
+               Fb_Font : Truetype.Font;
+               Fb_Data : Bytes.Byte_Array_Access;
+               Fb_Face : Font_Catalog.Count_Type := 0;
+            begin
+               Fonts.Choose_Fallback
+                 (Volume, Faces, Fallback.Probe, Font, Read, Read_Face,
+                  Fb_Font, Fb_Data, Fb_Face);
+               if Fb_Face /= 0 then
+                  Put_Line ("fallback face: "
+                            & Font_Catalog.File_Name (Faces, Fb_Face));
+               end if;
+            end;
          end if;
       end;
    else

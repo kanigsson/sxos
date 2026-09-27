@@ -10,9 +10,9 @@ bare-metal Ada on the ESP32-S3, no ESP-IDF, no Wi-Fi. What comes next is in
   *Settings*. The device boots into the Library.
 - **Formats:** EPUB and plain TXT, both decoded on the device.
 - **Font:** TrueType files from `/Fonts` on the SD card, rasterised on the
-  device. Western scripts (Latin, Greek, Cyrillic); Korean in progress
-  (`ROADMAP.md`, "Korean"): Hangul is set with a Korean reading face,
-  but a face lacking a character draws nothing (no fallback yet).
+  device. Western scripts (Latin, Greek, Cyrillic) and Korean (Hangul;
+  Hanja only with a face that has them); a character the face lacks comes
+  from a fallback face.
 - **Navigation:** open a book from the Library; return from the Reader to the
   Library. The last position per book survives power-off.
 - **Settings:** one screen, reachable from both Library and Reader: reading
@@ -85,6 +85,17 @@ fixed there, not by flashing.
   the parser does not read CFF/`.otf`. A static TTF such as Charis SIL,
   Literata or Noto Serif covers Latin/Greek/Cyrillic. With no usable font,
   error screens fall back to the built-in 5×7 bitmap font.
+- **Fallback faces** (`Fallback`): a character the face in use lacks is
+  taken from a short chain of other faces, not kerned against its
+  neighbours: first a face with Hangul (the reading face if it has
+  Hangul, else the smallest file in `/Fonts` that has, probed from its
+  cmap alone and then read whole), then the interface face (Latin accents,
+  Greek and Cyrillic that a Korean face lacks). `Font_Loader.Choose_Fallback`
+  sets the chain at boot and on every reading-face change; `Text_Raster`
+  consults it per character, `Text_Metrics` copies it when prepared.
+  Changing the reading face frees the old one before loading the new
+  (two 2–4 MB Korean faces need not fit side by side), and picks up the
+  fallback face's buffer when that face becomes the reading face.
 - **1 bpp rendering:** anti-aliased coverage is thresholded to black/white,
   with size-derived stem darkening.
 - **Persistence:** a log-structured store in internal NOR flash, written via

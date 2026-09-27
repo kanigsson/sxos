@@ -1,5 +1,6 @@
 with Interfaces; use Interfaces;
 
+with Fallback;
 with Glyph_Cache;
 with Truetype.Raster;
 with UTF8;
@@ -67,6 +68,15 @@ is
                         (-2**20, Long_Long_Integer'Min (2**20, R)));
    end Kern_Px;
 
+   --  Kern_Px for glyph Left of LF then Right of RF: glyphs of two faces
+   --  (one of them the fallback) are not kerned.
+   function Kern_Between
+     (LF : Truetype.Font; Left : Natural; RF : Truetype.Font; Right : Natural;
+      Size : Positive) return Integer
+   is (if Left /= 0 and then Truetype."=" (LF, RF)
+       then Kern_Px (RF, Left, Right, Size) else 0)
+     with Post => Kern_Between'Result in -2**20 .. 2**20;
+
    -----------
    -- Width --
    -----------
@@ -79,17 +89,21 @@ is
       P     : Positive := Positive'Max (1, Str'First);
       C     : UTF8.Code_Point;
       G     : Natural;
+      Fc    : Truetype.Font;
       Prev  : Natural := 0;
+      Prev_F : Truetype.Font := F;
    begin
       while P <= Str'Last loop
          pragma Loop_Invariant (P >= Str'First);
          pragma Loop_Variant (Increases => P);
          UTF8.Next_Code (Str, P, C);
-         G := Truetype.Glyph_Index (F, Unsigned_32 (C));
+         Fallback.Find (F, C, Fc, G);
          if G /= 0 then
-            Total := Add_Sat (Add_Kern (Total, Kern_Px (F, Prev, G, Size)),
-                              TR.Advance_Px (F, G, Size));
+            Total := Add_Sat (Add_Kern (Total, Kern_Between
+                                          (Prev_F, Prev, Fc, G, Size)),
+                              TR.Advance_Px (Fc, G, Size));
             Prev := G;
+            Prev_F := Fc;
          end if;
       end loop;
       return Total;
@@ -113,9 +127,11 @@ is
       P   : Positive := Positive'Max (1, Str'First);
       C   : UTF8.Code_Point;
       G   : Natural;
+      Fc  : Truetype.Font;
       Adv : Natural;
       K   : Integer;
       Prev : Natural := 0;
+      Prev_F : Truetype.Font := F;
 
       G_Eff : constant Positive :=
         (if Gain = Auto_Gain then Gain_For (Size) else Gain);
@@ -123,15 +139,16 @@ is
       while P <= Str'Last loop
          pragma Loop_Invariant (P >= Str'First);
          UTF8.Next_Code (Str, P, C);
-         G := Truetype.Glyph_Index (F, Unsigned_32 (C));
+         Fallback.Find (F, C, Fc, G);
          if G /= 0 then
             --  A pen this far out draws nothing any more: stop.
             exit when Pen > Integer'Last / 2 or else Pen < Integer'First / 2;
-            K := Kern_Px (F, Prev, G, Size);
+            K := Kern_Between (Prev_F, Prev, Fc, G, Size);
             Pen := Pen + K;
             Prev := G;
+            Prev_F := Fc;
             Glyph_Cache.Draw
-              (Fr, F, G, Size, G_Eff, Ink_Threshold, Pen, Baseline, Black, Adv);
+              (Fr, Fc, G, Size, G_Eff, Ink_Threshold, Pen, Baseline, Black, Adv);
             --  A pen past Integer'Last is past any frame: nothing further
             --  could be seen.
             exit when Pen > 0 and then Adv > Integer'Last - Pen;
@@ -194,7 +211,9 @@ is
       P     : Positive := Positive'Max (1, Str'First);
       C     : UTF8.Code_Point;
       G     : Natural;
+      Fc    : Truetype.Font;
       Prev  : Natural := 0;
+      Prev_F : Truetype.Font := F;
    begin
       while P <= Str'Last loop
          pragma Loop_Invariant
@@ -202,11 +221,13 @@ is
             and then Last in Str'First - 1 .. P - 1);
          pragma Loop_Variant (Increases => P);
          UTF8.Next_Code (Str, P, C);
-         G := Truetype.Glyph_Index (F, Unsigned_32 (C));
+         Fallback.Find (F, C, Fc, G);
          if G /= 0 then
-            Total := Add_Sat (Add_Kern (Total, Kern_Px (F, Prev, G, Size)),
-                              TR.Advance_Px (F, G, Size));
+            Total := Add_Sat (Add_Kern (Total, Kern_Between
+                                          (Prev_F, Prev, Fc, G, Size)),
+                              TR.Advance_Px (Fc, G, Size));
             Prev := G;
+            Prev_F := Fc;
          end if;
          exit when Total > Max_W;
          Last := P - 1;

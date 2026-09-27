@@ -215,6 +215,56 @@ is
       end if;
    end Find_Kern_Lookups;
 
+   --  Pick the best Unicode subtable of F.Cmap into F.Cmap_Sub and
+   --  F.Cmap_Fmt; Ok is False when there is none this reader decodes.
+   procedure Select_Cmap (F : in out Font; Ok : in out Boolean) is
+      Sub_Count  : Natural;
+      Best_Score : Integer := -1;
+   begin
+      --  Preference order is the usual one -- (3,10) and (0,4/6) are format
+      --  12 full-repertoire tables, (3,1) and (0,3) the format 4 BMP tables
+      --  that Korean actually needs.
+      U16 (F, F.Cmap.Offset + 2, Sub_Count, Ok);
+      for I in 0 .. Sub_Count - 1 loop
+         declare
+            Plat, Enc, Fmt : Natural;
+            Sub_Off        : Unsigned_32;
+            Score          : Integer := -1;
+            Base           : constant Natural := F.Cmap.Offset + 4 + I * 8;
+         begin
+            U16 (F, Base, Plat, Ok);
+            U16 (F, Base + 2, Enc, Ok);
+            U32 (F, Base + 4, Sub_Off, Ok);
+            exit when not Ok;
+
+            if (Plat = 3 and then Enc = 10) or else (Plat = 0 and then Enc in 4 | 6) then
+               Score := 3;
+            elsif (Plat = 3 and then Enc = 1) or else (Plat = 0 and then Enc <= 3) then
+               Score := 2;
+            end if;
+
+            if Score > Best_Score then
+               --  An offset this far out cannot be read; failing here is what
+               --  the read below would do.
+               if Sub_Off >= Max_Data then
+                  Ok := False;
+                  exit;
+               end if;
+               U16 (F, F.Cmap.Offset + Natural (Sub_Off), Fmt, Ok);
+               exit when not Ok;
+               if Fmt = 4 or else Fmt = 12 then
+                  Best_Score := Score;
+                  F.Cmap_Fmt := Fmt;
+                  F.Cmap_Sub :=
+                    (Offset => F.Cmap.Offset + Natural (Sub_Off), Length => 0);
+               end if;
+            end if;
+         end;
+      end loop;
+
+      Ok := Ok and then Best_Score >= 0;
+   end Select_Cmap;
+
    ----------
    -- Open --
    ----------
@@ -224,8 +274,6 @@ is
       N_Tables   : Natural;
       Rec        : Natural;
       Loca_Fmt   : Integer;
-      Sub_Count  : Natural;
-      Best_Score : Integer := -1;
       V          : Natural;
       S          : Integer;
    begin
@@ -327,52 +375,76 @@ is
          return;
       end if;
 
-      --  cmap: pick the best Unicode subtable.  Preference order is the usual
-      --  one -- (3,10) and (0,4/6) are format 12 full-repertoire tables, (3,1)
-      --  and (0,3) the format 4 BMP tables that Korean actually needs.
-      U16 (F, F.Cmap.Offset + 2, Sub_Count, Ok);
-      for I in 0 .. Sub_Count - 1 loop
-         declare
-            Plat, Enc, Fmt : Natural;
-            Sub_Off        : Unsigned_32;
-            Score          : Integer := -1;
-            Base           : constant Natural := F.Cmap.Offset + 4 + I * 8;
-         begin
-            U16 (F, Base, Plat, Ok);
-            U16 (F, Base + 2, Enc, Ok);
-            U32 (F, Base + 4, Sub_Off, Ok);
-            exit when not Ok;
-
-            if (Plat = 3 and then Enc = 10) or else (Plat = 0 and then Enc in 4 | 6) then
-               Score := 3;
-            elsif (Plat = 3 and then Enc = 1) or else (Plat = 0 and then Enc <= 3) then
-               Score := 2;
-            end if;
-
-            if Score > Best_Score then
-               --  An offset this far out cannot be read; failing here is what
-               --  the read below would do.
-               if Sub_Off >= Max_Data then
-                  Ok := False;
-                  exit;
-               end if;
-               U16 (F, F.Cmap.Offset + Natural (Sub_Off), Fmt, Ok);
-               exit when not Ok;
-               if Fmt = 4 or else Fmt = 12 then
-                  Best_Score := Score;
-                  F.Cmap_Fmt := Fmt;
-                  F.Cmap_Sub :=
-                    (Offset => F.Cmap.Offset + Natural (Sub_Off), Length => 0);
-               end if;
-            end if;
-         end;
-      end loop;
-
-      Ok := Ok and then Best_Score >= 0;
+      Select_Cmap (F, Ok);
       if Ok then
          Find_Kern_Lookups (F);
       end if;
    end Open;
+
+   ---------------
+   -- Open_Cmap --
+   ---------------
+
+   procedure Open_Cmap (Data : Data_Ref; F : out Font; Ok : out Boolean) is
+   begin
+      F := (Data => Data, others => <>);
+      Ok := Data /= null and then Data'Length >= 4
+        and then Data'Last < Max_Data;
+      if not Ok then
+         return;
+      end if;
+      F.Cmap := (Offset => Data'First, Length => Data'Length);
+      --  Unknown here: let the cmap name any glyph.
+      F.N_Glyphs := U16_Value'Last;
+      Select_Cmap (F, Ok);
+   end Open_Cmap;
+
+   ---------------
+   -- Find_Cmap --
+   ---------------
+
+   procedure Find_Cmap
+     (Header : Byte_Array; Offset, Length : out Natural; Ok : out Boolean)
+   is
+      --  The big-endian 32-bit value at byte I of Header.
+      function U32_At (I : Natural) return Unsigned_32 is
+        (Shift_Left (Unsigned_32 (Header (Header'First + I)), 24)
+         or Shift_Left (Unsigned_32 (Header (Header'First + I + 1)), 16)
+         or Shift_Left (Unsigned_32 (Header (Header'First + I + 2)), 8)
+         or Unsigned_32 (Header (Header'First + I + 3)))
+      with Pre => Header'Length >= 4 and then I <= Header'Length - 4;
+
+      Tag      : Unsigned_32;
+      N_Tables : Natural;
+      Rec      : Natural;
+      Off, Len : Unsigned_32;
+   begin
+      Offset := 0;
+      Length := 0;
+      Ok := False;
+      if Header'Length < 12 then
+         return;
+      end if;
+      Tag := U32_At (0);
+      if Tag /= 16#0001_0000# and then Tag /= 16#7472_7565# then
+         return;
+      end if;
+      N_Tables := Natural (Shift_Right (U32_At (4), 16));
+      for I in 0 .. N_Tables - 1 loop
+         Rec := 12 + I * 16;
+         exit when Rec > Header'Length - 16;
+         if U32_At (Rec) = 16#636D6170# then            --  cmap
+            Off := U32_At (Rec + 8);
+            Len := U32_At (Rec + 12);
+            if Off < Max_Data and then Len in 1 .. Max_Data - 1 then
+               Offset := Natural (Off);
+               Length := Natural (Len);
+               Ok := True;
+            end if;
+            return;
+         end if;
+      end loop;
+   end Find_Cmap;
 
    -----------------
    -- Glyph_Index --

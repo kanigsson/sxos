@@ -10,6 +10,9 @@ with Truetype;
 --  along increasing X, above a baseline at Y.  Adjacent glyphs are kerned
 --  (Truetype.Kerning), rounded to whole pixels.
 --
+--  A character F lacks is measured and drawn from the Fallback face, if
+--  that has it (not kerned against its neighbours); else it is skipped.
+--
 --  Glyphs are drawn through Glyph_Cache, which rasterises each glyph and
 --  size once.  NOT REENTRANT, like the cache and Truetype.Raster.
 package Text_Raster

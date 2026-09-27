@@ -75,12 +75,13 @@ is
       C       : UTF8.Code_Point;
       Prev    : UTF8.Code_Point := Text_Metrics.No_Code;
       Gl      : Natural;
+      Face    : Truetype.Font;
 
-      --  Draw glyph Id with its pen at Pen.  The cache's own advance for the
+      --  Draw glyph Id of Fc with its pen at Pen.  The cache's own advance for the
       --  glyph (Adv) is unused on purpose: the pen follows T's advances,
       --  which are what the line was measured with, so a line is drawn
       --  exactly as wide as it was set.
-      procedure Glyph_At (Id : Natural; Pen : Integer) is
+      procedure Glyph_At (Fc : Truetype.Font; Id : Natural; Pen : Integer) is
          Adv : Natural;
          pragma Warnings
            (GNATprove, Off, """Adv"" is set by ""Draw*"" but not used*",
@@ -88,10 +89,10 @@ is
       begin
          if Grey then
             Glyph_Cache.Draw_Grey
-              (Fr, Masks, F, Id, Size, Gain, Pen, Baseline, Adv);
+              (Fr, Masks, Fc, Id, Size, Gain, Pen, Baseline, Adv);
          else
             Glyph_Cache.Draw
-              (Fr, F, Id, Size, Gain, Text_Raster.Ink_Threshold,
+              (Fr, Fc, Id, Size, Gain, Text_Raster.Ink_Threshold,
                Pen, Baseline, True, Adv);
          end if;
          pragma Warnings
@@ -142,9 +143,9 @@ is
                X := Add_Kern (X, Text_Metrics.Kern (T, Prev, C));
                Prev := C;
             end if;
-            Gl := Text_Metrics.Glyph (T, F, C);
+            Text_Metrics.Find (T, F, C, Face, Gl);
             if Gl /= 0 then
-               Glyph_At (Gl, X);
+               Glyph_At (Face, Gl, X);
             end if;
             X := Add_Sat (X, Text_Metrics.Advance (T, F, C));
          end if;
@@ -152,9 +153,9 @@ is
 
       if L.Hyphen then
          X := Add_Kern (X, Text_Metrics.Kern (T, Prev, Character'Pos ('-')));
-         Gl := Text_Metrics.Glyph (T, F, Character'Pos ('-'));
+         Text_Metrics.Find (T, F, Character'Pos ('-'), Face, Gl);
          if Gl /= 0 then
-            Glyph_At (Gl, X);
+            Glyph_At (Face, Gl, X);
          end if;
       end if;
    end Draw_Line;

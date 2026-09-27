@@ -19,9 +19,9 @@ is
    type Byte_Array is array (Natural range <>) of Unsigned_8;
    type Pool_Access is access Byte_Array;
 
-   --  The faces with glyphs in the cache: the interface face and the
-   --  reading face, drawn on the same screen.
-   Max_Fonts : constant := 2;
+   --  The faces with glyphs in the cache: the interface face, the reading
+   --  face and the fallback face, drawn on the same screen.
+   Max_Fonts : constant := 3;
    subtype Font_Slot is Positive range 1 .. Max_Fonts;
 
    type Entry_Type is record

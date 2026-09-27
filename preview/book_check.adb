@@ -19,6 +19,8 @@ with Ada.Command_Line; use Ada.Command_Line;
 with Ada.Text_IO; use Ada.Text_IO;
 
 with Book_Source;
+with Bytes;
+with Fallback;
 with Font_Catalog;
 with Font_Loader;
 with Language_Guess;
@@ -291,6 +293,19 @@ begin
             Set_Exit_Status (Failure);
             return;
          end if;
+         declare
+            Fb_Font : Truetype.Font;
+            Fb_Data : Bytes.Byte_Array_Access;
+            Fb_Face : Font_Catalog.Count_Type := 0;
+         begin
+            Fonts.Choose_Fallback
+              (V, Faces, Fallback.Probe, Font, Font, Face,
+               Fb_Font, Fb_Data, Fb_Face);
+            if Fb_Face /= 0 then
+               Put_Line ("fallback face: "
+                         & Font_Catalog.File_Name (Faces, Fb_Face));
+            end if;
+         end;
          Text_Metrics.Prepare (Metrics, Font, Size);
          Geo := Page_Layout.Make
            (Metrics, Font, Reader_View.Col_Width, Reader_View.Area_Height);

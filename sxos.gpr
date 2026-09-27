@@ -34,7 +34,7 @@ project SXOS is
       --  Off it until re-proved after kerning, grey text and Korean:
       --  mono_frame.adb, page_layout.adb, reader_view.adb,
       --  reading_settings.adb, settings_view.adb, text_metrics.adb,
-      --  text_raster.adb, truetype.adb.
+      --  text_raster.adb, truetype.adb; never proved yet: fallback.adb.
       Proved := Base & ("-gnatp");
       for Switches ("bitmap_text.adb") use Proved;
       for Switches ("bytes.ads") use Proved;
