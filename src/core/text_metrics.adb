@@ -1,5 +1,6 @@
 with Interfaces; use Interfaces;
 
+with Truetype.Identity;
 with Truetype.Raster;
 
 package body Text_Metrics
@@ -80,17 +81,15 @@ is
       G      : out Natural)
      with Post => Source <= T.N_Backups
    is
-      use type Truetype.Font;
    begin
       Source := 0;
       G := Truetype.Glyph_Index (F, Unsigned_32 (C));
+      --  F may be in the chain too: asking it again finds nothing again.
       for I in 1 .. T.N_Backups loop
          exit when G /= 0;
-         if T.Backups (I) /= F then
-            G := Truetype.Glyph_Index (T.Backups (I), Unsigned_32 (C));
-            if G /= 0 then
-               Source := I;
-            end if;
+         G := Truetype.Glyph_Index (T.Backups (I), Unsigned_32 (C));
+         if G /= 0 then
+            Source := I;
          end if;
       end loop;
    end Look_Up;
@@ -100,7 +99,7 @@ is
    is (if Source in 1 .. T.N_Backups then T.Backups (Source) else F);
 
    procedure Prepare (T : in out Table; F : Truetype.Font; Size : Positive) is
-      use type Truetype.Font;
+      Same  : constant Boolean := Truetype.Identity.Same_Face (T.Kern_Face, F);
       Space : constant Natural := Truetype.Glyph_Index (F, 32);
       C     : UTF8.Code_Point;
       G     : Natural;
@@ -130,7 +129,7 @@ is
             Source  => Src);
       end loop;
 
-      if not T.Kern_Valid or else T.Kern_Face /= F then
+      if not T.Kern_Valid or else not Same then
          --  Only F's own glyphs: F's kerning knows nothing of the others.
          for S in Kern_Slot loop
             declare

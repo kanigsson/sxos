@@ -396,7 +396,7 @@ is
                end if;
                if Found and then not Is_Empty (Id) then
                   Count := Count + 1;
-                  Anchors (Anchors'First + (Count - 1)) :=
+                  Anchors (Count) :=
                     (Hash   => Id_Hash (Input (Id.First .. Id.Last)),
                      Offset => Last + 1);
                end if;
@@ -477,9 +477,9 @@ is
       --  An anchor was recorded before the separator its text got: move
       --  it onto the text.  (One recorded before a trailing space, just
       --  dropped, is past Last + 1: it goes to Last + 1.)
-      for K in Anchors'First .. Anchors'First + Count - 1 loop
+      for K in 1 .. Count loop
          pragma Loop_Invariant
-           (for all J in Anchors'First .. K - 1
+           (for all J in 1 .. K - 1
             => Anchors (J).Offset <= Last + 1);
          declare
             O : Positive := Anchors (K).Offset;

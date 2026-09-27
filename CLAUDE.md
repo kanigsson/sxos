@@ -18,11 +18,13 @@ Only what is not guessable from the tree is recorded here.
 - **SPARK silver.** Data-transforming units (parsers, layout, UI state,
   framebuffer maths) are `SPARK_Mode => On` and proved free of run-time
   errors at `--level=2`; keep them that way (proof command below). Never
-  make a run green by suppressing a check; the only suppressions are four
+  make a run green by suppressing a check; the only suppressions are
   flow warnings about deliberately ignored `out` values, each with a
   `Reason`. Not SPARK, by design: `Book_Source`, `Reader`, `Hyphen_Loader`,
-  `Font_Loader` (they allocate) and the bodies of `Deflate` and
-  `Glyph_Cache` (address overlay, heap pool).
+  `Font_Loader` (they allocate) and the bodies of `Deflate`,
+  `Glyph_Cache` (address overlay, heap pool) and `Truetype.Identity`
+  (access equality, which SPARK forbids; its answer is a volatile input,
+  so callers store it in a variable before testing it).
 - The preview build has `-gnata`, so contracts and loop invariants run
   there: keep them cheap (no whole-buffer quantifiers in per-byte loops).
 - Contracts assume untrusted input: fonts, EPUBs and the FAT volume come

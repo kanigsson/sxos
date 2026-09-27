@@ -1,6 +1,7 @@
 with Interfaces;
 with Fallback;
 with Truetype;
+with Truetype.Identity;
 with UTF8;
 
 --  Glyph ids and pen advances of one face at one pixel size, looked up once
@@ -31,7 +32,7 @@ is
    function Size (T : Table) return Positive;
 
    procedure Prepare (T : in out Table; F : Truetype.Font; Size : Positive)
-     with Global => Fallback.State,
+     with Global => (Fallback.State, Truetype.Identity.Addresses),
           Post   => Text_Metrics.Size (T) = Size;
 
    --  F must be the font T was prepared from.  The glyph for C (0 for

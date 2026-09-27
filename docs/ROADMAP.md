@@ -55,8 +55,6 @@ In order:
   With a Nanum reading face, or a non-Korean one, the Hanja of 무정 are
   missing. Options: prefer a face with Hanja when a book needs them (probe
   U+4E00 too), or a third face in the chain, at 4 MB of PSRAM.
-- **Proof.** `Fallback` is new and not proved; `Text_Metrics`,
-  `Text_Raster`, `Truetype` and `Page_Layout` changed for Korean.
 - **Glyph cache size.** A chapter of 무정 uses 900–1150 distinct
   characters; the cache drops everything past 1536 glyphs or 256 KB.
   Measure on the device, then likely double both.

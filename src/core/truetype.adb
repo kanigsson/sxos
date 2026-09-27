@@ -109,7 +109,8 @@ is
 
       --  Add the lookups of feature FI when it is a 'kern' feature.
       procedure Add_Feature (FI : Natural)
-        with Pre  => F.N_Kern <= Max_Kern_Lookups and then FI <= 65_535,
+        with Pre  => F.N_Kern <= Max_Kern_Lookups and then FI <= 65_535
+                     and then Feat_List <= 65_535 and then Look_List <= 65_535,
              Post => F.N_Kern <= Max_Kern_Lookups
       is
          Feat_Ok : Boolean := True;
@@ -179,6 +180,7 @@ is
       if Ok then
          for I in 0 .. N_Script - 1 loop
             pragma Loop_Invariant (Ok);
+            pragma Loop_Invariant (Lang_Sys <= Max_Data + 3 * 65_535);
             U32 (F, G + Script_List + 2 + I * 6, Tag, Ok);
             U16 (F, G + Script_List + 2 + I * 6 + 4, Script_Off, Ok);
             exit when not Ok;
@@ -412,7 +414,8 @@ is
          or Shift_Left (Unsigned_32 (Header (Header'First + I + 1)), 16)
          or Shift_Left (Unsigned_32 (Header (Header'First + I + 2)), 8)
          or Unsigned_32 (Header (Header'First + I + 3)))
-      with Pre => Header'Length >= 4 and then I <= Header'Length - 4;
+      with Pre => Header'Last < Natural'Last
+                  and then Header'Length >= 4 and then I <= Header'Length - 4;
 
       Tag      : Unsigned_32;
       N_Tables : Natural;
@@ -727,6 +730,11 @@ is
            O.Ends (O.N_Contours + J) in P0 .. P0 + N_Pts - 1
            and then (if J > 0 then O.Ends (O.N_Contours + J - 1)
                                    < O.Ends (O.N_Contours + J)));
+      --  The same, in the form restated below.
+      pragma Assert
+        (for all I in C0 .. C0 + N_Con - 1 =>
+           O.Ends (I) in P0 .. P0 + N_Pts - 1
+           and then (if I > C0 then O.Ends (I - 1) < O.Ends (I)));
 
       --  Skip the hinting bytecode: this reader does not interpret it.
       U16 (F, Base + 10 + N_Con * 2, Ins_Len, Ok);
@@ -1366,6 +1374,7 @@ is
       begin
          for Guard in 1 .. 16 loop
             pragma Loop_Invariant (abs Sum <= Long_Long_Integer (Guard - 1) * 32_768);
+            pragma Loop_Invariant (P < Max_Data);
             Next_Legacy (F, P, N);
             exit when P = 0;
             Lo := 0;
@@ -1402,10 +1411,10 @@ is
    procedure Kerning_Matrix
      (F       : Font;
       Glyphs  : Glyph_List;
-      M       : in out Kern_Matrix;
+      M       : out Kern_Matrix;
       Settled : in out Flag_Matrix)
    is
-      N : constant Natural := Glyphs'Length;
+      N : constant Natural range 0 .. Max_Kern_Glyphs := Glyphs'Length;
 
       --  Positions in Glyphs, ordered by glyph id, to find every entry of
       --  a glyph that a table names.
@@ -1416,9 +1425,13 @@ is
       --  rule.
       procedure Add (I, J : Natural; V : Integer; Once : Boolean)
         with Pre => I < N and then J < N and then V in -32_768 .. 32_767
+                    and then M'First = 0 and then M'Last = N * N - 1
+                    and then Settled'First = 0
+                    and then Settled'Last = N * N - 1
       is
          K : constant Natural := I * N + J;
       begin
+         pragma Assert (I * N <= (N - 1) * N);
          if Once and then Settled (K) then
             return;
          end if;
@@ -1429,7 +1442,8 @@ is
 
       --  The first position in Order whose glyph is at least G (N if none).
       function First_At_Least (G : Natural) return Natural
-        with Post => First_At_Least'Result <= N
+        with Pre  => Glyphs'First = 0,
+             Post => First_At_Least'Result <= N
       is
          Lo : Natural := 0;
          Hi : Natural := N;
@@ -1501,7 +1515,7 @@ is
                            if Found and then CI < Count then
                               U16 (F, Sub + 10 + CI * 2, PS_Off, Ok);
                               declare
-                                 Pairs : Natural := 0;
+                                 Pairs : Natural;
                                  Ok2   : Boolean := Ok;
                               begin
                                  U16 (F, Sub + PS_Off, Pairs, Ok2);
@@ -1556,8 +1570,15 @@ is
                         end loop;
                         for I in 0 .. N - 1 loop
                            if Glyphs (I) /= 0 then
+                              pragma Warnings
+                                (GNATprove, Off,
+                                 """CI"" is set by ""Coverage_Index"" but not used*",
+                                 Reason => "format 2 values go by class");
                               Coverage_Index
                                 (F, Sub + Cov, Glyphs (I), CI, Found);
+                              pragma Warnings
+                                (GNATprove, On,
+                                 """CI"" is set by ""Coverage_Index"" but not used*");
                               C1 := (if Found
                                      then Class_Of (F, Sub + CD1, Glyphs (I))
                                      else N1);

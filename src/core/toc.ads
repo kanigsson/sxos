@@ -40,8 +40,9 @@ is
       Is_Nav : Boolean;
       Items  : out Item_Array;
       Count  : out Natural)
-     with Post => Count <= Items'Length
-                  and then (for all K in Items'First .. Items'First + Count - 1
+     with Pre  => Items'First = 1,
+          Post => Count <= Items'Length
+                  and then (for all K in 1 .. Count
                             => Within (Doc, Items (K).Label)
                                and then Within (Doc, Items (K).Href));
 end Toc;

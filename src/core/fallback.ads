@@ -1,4 +1,5 @@
 with Truetype;
+with Truetype.Identity;
 with UTF8;
 
 --  The faces that draw what the face in use lacks: Hangul in the interface
@@ -30,7 +31,8 @@ is
    --  Append F to the chain, unless it is there already or the chain is
    --  full.
    procedure Add (F : Truetype.Font)
-     with Global => (In_Out => State);
+     with Global => (In_Out => State,
+                     Input  => Truetype.Identity.Addresses);
 
    function Count return Count_Type
      with Global => State;
@@ -40,13 +42,15 @@ is
           Pre    => I <= Count;
 
    --  The glyph for C: in F if F has it, else in the first face of the
-   --  chain that has.  Found is the face it is in (F when none has it), G
-   --  the glyph (0 then).
+   --  chain that has.  Found is the face it is in (F when none has it),
+   --  Source its place in the chain (0 for F), G the glyph (0 then).  Two
+   --  glyphs are of the same face when their Sources are equal.
    procedure Find
-     (F     : Truetype.Font;
-      C     : UTF8.Code_Point;
-      Found : out Truetype.Font;
-      G     : out Natural)
+     (F      : Truetype.Font;
+      C      : UTF8.Code_Point;
+      Found  : out Truetype.Font;
+      Source : out Count_Type;
+      G      : out Natural)
      with Global => State,
           Post   => G = 0 or else G < Truetype.Num_Glyphs (Found);
 

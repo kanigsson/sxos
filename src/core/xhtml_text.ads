@@ -34,11 +34,11 @@ is
                   and then Output'Last in 0 .. Natural'Last - 1,
           Post => Last <= Output'Last;
 
-   --  The same, also recording the anchors: Anchors (Anchors'First ..
-   --  Anchors'First + Count - 1), in document order.  An anchor's Offset
-   --  is the first character of the text after it (skipping the break or
-   --  space before that text), at most Last + 1 (Last = 0: 1).  Anchors
-   --  past Anchors'Length are dropped.
+   --  The same, also recording the anchors: Anchors (1 .. Count), in
+   --  document order.  An anchor's Offset is the first character of the
+   --  text after it (skipping the break or space before that text), at
+   --  most Last + 1 (Last = 0: 1).  Anchors past Anchors'Length are
+   --  dropped.
    procedure Convert
      (Input   : String;
       Output  : out String;
@@ -46,8 +46,9 @@ is
       Anchors : out Anchor_Array;
       Count   : out Natural)
      with Pre  => Output'First = 1
-                  and then Output'Last in 0 .. Natural'Last - 1,
+                  and then Output'Last in 0 .. Natural'Last - 1
+                  and then Anchors'First = 1,
           Post => Last <= Output'Last and then Count <= Anchors'Length
-                  and then (for all K in Anchors'First .. Anchors'First + Count - 1
+                  and then (for all K in 1 .. Count
                             => Anchors (K).Offset <= Last + 1);
 end Xhtml_Text;

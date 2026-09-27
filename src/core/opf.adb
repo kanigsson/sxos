@@ -108,7 +108,7 @@ is
 
    --  Is Token one of the blank-separated words of S?
    function Has_Word (S : String; Token : String) return Boolean is
-      I : Natural := S'First;
+      I : Natural := (if S'Length > 0 then S'First else 0);
       E : Natural;
    begin
       if S'Length = 0 or else Token'Length = 0 then

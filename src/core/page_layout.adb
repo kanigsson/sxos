@@ -396,10 +396,10 @@ is
    begin
       if E = 0 then
          return 0;
-      elsif Capacity = 0 or else E > 100 * Capacity then
-         return Max_Badness + Excess;
       elsif Capacity > 5 * E then
          return 0;
+      elsif Capacity = 0 or else E > 100 * Capacity then
+         return Max_Badness + Excess;
       end if;
       pragma Assert (Capacity <= 5 * Max_Px);
       B := 100 * E * E * E / (Capacity * Capacity * Capacity);
@@ -495,11 +495,12 @@ is
       Run_N  : Natural := 0;
       Run_I  : Natural := 0;
 
-      procedure Add
+      --  Add a break, not yet followed by the line after it.
+      procedure Push
         (Last : Natural; Next : Positive; End_W, Penalty : Natural;
          Hyphen, Flagged : Boolean)
         with Pre  => N <= Max_Breaks,
-             Post => N <= Max_Breaks
+             Post => N in N'Old .. Max_Breaks
       is
       begin
          if N = Max_Breaks then
@@ -517,7 +518,18 @@ is
          W.Brk (N).Hyphen := Hyphen;
          W.Brk (N).Flagged := Flagged;
          W.Brk (N).Succ := 0;
-         if Pend = 0 then
+      end Push;
+
+      --  Push, the line after it to start at the next visible character.
+      procedure Add
+        (Last : Natural; Next : Positive; End_W, Penalty : Natural;
+         Hyphen, Flagged : Boolean)
+        with Pre  => N <= Max_Breaks and then Pend <= N,
+             Post => N <= Max_Breaks and then Pend <= N
+      is
+      begin
+         Push (Last, Next, End_W, Penalty, Hyphen, Flagged);
+         if Pend = 0 and then N > 0 then
             Pend := N;
          end if;
       end Add;
@@ -625,8 +637,8 @@ is
       end loop;
 
       --  The paragraph's end: its last line takes everything left.
-      Add (PE - 1, (if PE > Text'Last then PE else PE + 1), X, 0,
-           False, False);
+      Push (PE - 1, (if PE > Text'Last then PE else PE + 1), X, 0,
+            False, False);
       if N = 0 then
          Ok := False;
       end if;
@@ -760,8 +772,6 @@ is
       Ok      : Boolean;
       Found   : Boolean := False;
    begin
-      W.Cached := True;
-      W.Para_First := PS;
       W.Optimal := False;
       W.Count := 0;
       Scan_Paragraph (T, F, G, Text, PS, PE, False, W, N, Ok);
@@ -778,6 +788,8 @@ is
          W.Optimal := True;
          W.Count := N;
       end if;
+      W.Cached := True;
+      W.Para_First := PS;
    end Set_Paragraph;
 
    --  Page_Lines, keeping the paragraph W holds when W.Cached says it is
@@ -803,14 +815,13 @@ is
       Chain  : Boolean;
       L      : Line;
       N      : Natural := 0;
-      Full   : Boolean := False;
+      Full   : Boolean;
    begin
       Count := 1;
       loop
          pragma Loop_Invariant (P in Start .. Text'Last);
          pragma Loop_Invariant (N < Max_Page_Lines);
-         pragma Loop_Invariant
-           (if N > 0 then Count = N and then W.Lines (N).Next = P);
+         pragma Loop_Invariant (if N > 0 then Count = N);
          pragma Loop_Invariant (Y <= G.Area_Height);
          pragma Loop_Variant (Increases => P);
 
@@ -851,10 +862,10 @@ is
 
          --  The paragraph's lines from P on, as far as the page goes.
          loop
-            pragma Loop_Invariant (P in Start .. Text'Last);
+            pragma Loop_Invariant (P in P'Loop_Entry .. Text'Last);
+            pragma Loop_Invariant (P >= Start);
             pragma Loop_Invariant (N < Max_Page_Lines);
-            pragma Loop_Invariant
-              (if N > 0 then Count = N and then W.Lines (N).Next = P);
+            pragma Loop_Invariant (if N > 0 then Count = N);
             pragma Loop_Invariant (Y <= G.Area_Height);
             pragma Loop_Invariant (I <= Max_Breaks);
             pragma Loop_Variant (Increases => P);

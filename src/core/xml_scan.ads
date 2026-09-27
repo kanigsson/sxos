@@ -33,6 +33,8 @@ is
      with Always_Terminates,
           Post => (if Found
                    then Within (Doc, Tag) and then Tag.Last < Positive'Last
+                        and then Tag.First > Pos'Old
+                        and then Tag.First <= Doc'Last
                         and then Pos > Pos'Old);
 
    --  The subprograms below take a Tag as Next_Tag returns it: within Doc,

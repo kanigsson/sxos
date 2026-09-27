@@ -52,7 +52,8 @@ is
    --  Header is not an sfnt or its directory has no cmap in it.
    procedure Find_Cmap
      (Header : Byte_Array; Offset, Length : out Natural; Ok : out Boolean)
-     with Post => (if Ok then Length > 0);
+     with Pre  => Header'Last < Natural'Last,
+          Post => (if Ok then Length > 0);
 
    --  Every value below is a 16-bit field of the file, and the bounds say so:
    --  a client scaling them by a pixel size can then show its arithmetic
@@ -176,7 +177,7 @@ is
    procedure Kerning_Matrix
      (F       : Font;
       Glyphs  : Glyph_List;
-      M       : in out Kern_Matrix;
+      M       : out Kern_Matrix;
       Settled : in out Flag_Matrix)
      with Pre => Glyphs'First = 0 and then Glyphs'Length <= Max_Kern_Glyphs
                  and then M'First = 0

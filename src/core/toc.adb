@@ -59,7 +59,8 @@ is
    --  Where the toc nav's content starts (just past its start tag): the
    --  nav whose epub:type has "toc", else the first nav; 0 if none.
    function Nav_Start (Doc : String) return Natural
-     with Pre => Doc'Length > 0
+     with Pre  => Doc'Length > 0,
+          Post => Nav_Start'Result = 0 or else Nav_Start'Result > Doc'First
    is
       Pos   : Positive := Doc'First;
       Tag   : Span;
@@ -69,6 +70,8 @@ is
       First : Natural := 0;
    begin
       loop
+         pragma Loop_Invariant
+           (Pos >= Doc'First and then (First = 0 or else First > Doc'First));
          pragma Loop_Variant (Increases => Pos);
          Next_Tag (Doc, Pos, Tag, Found);
          exit when not Found;
@@ -88,9 +91,9 @@ is
      (Doc   : String;
       Items : out Item_Array;
       Count : out Natural)
-     with Pre  => Doc'Length > 0,
+     with Pre  => Doc'Length > 0 and then Items'First = 1,
           Post => Count <= Items'Length
-                  and then (for all K in Items'First .. Items'First + Count - 1
+                  and then (for all K in 1 .. Count
                             => Within (Doc, Items (K).Label)
                                and then Within (Doc, Items (K).Href))
    is
@@ -110,7 +113,7 @@ is
       loop
          pragma Loop_Invariant
            (Count <= Items'Length and then Pos >= Doc'First
-            and then (for all K in Items'First .. Items'First + Count - 1
+            and then (for all K in 1 .. Count
                       => Within (Doc, Items (K).Label)
                          and then Within (Doc, Items (K).Href)));
          pragma Loop_Variant (Increases => Pos);
@@ -146,7 +149,7 @@ is
                   end if;
                end loop;
                Count := Count + 1;
-               Items (Items'First + (Count - 1)) :=
+               Items (Count) :=
                  (Level => Natural'Max (1, Natural'Min (Depth, Max_Level)),
                   Label => Label,
                   Href  => Href);
@@ -160,9 +163,9 @@ is
      (Doc   : String;
       Items : out Item_Array;
       Count : out Natural)
-     with Pre  => Doc'Length > 0,
+     with Pre  => Doc'Length > 0 and then Items'First = 1,
           Post => Count <= Items'Length
-                  and then (for all K in Items'First .. Items'First + Count - 1
+                  and then (for all K in 1 .. Count
                             => Within (Doc, Items (K).Label)
                                and then Within (Doc, Items (K).Href))
    is
@@ -180,7 +183,7 @@ is
          pragma Loop_Invariant
            (Count <= Items'Length and then Pos >= Doc'First
             and then Within (Doc, Label)
-            and then (for all K in Items'First .. Items'First + Count - 1
+            and then (for all K in 1 .. Count
                       => Within (Doc, Items (K).Label)
                          and then Within (Doc, Items (K).Href)));
          pragma Loop_Variant (Increases => Pos);
@@ -215,7 +218,7 @@ is
             Attribute (Doc, Tag, "src", Href, Found);
             if Found and then not Is_Empty (Href) then
                Count := Count + 1;
-               Items (Items'First + (Count - 1)) :=
+               Items (Count) :=
                  (Level => Natural'Max (1, Natural'Min (Depth, Max_Level)),
                   Label => Label,
                   Href  => Href);

@@ -191,7 +191,7 @@ is
             Back_Y + (Back_H + Text_Raster.Ascent_Px (F, Foot_Size)
                       - Text_Raster.Descent_Px (F, Foot_Size)) / 2,
             Image ((First - 1) / Rows + 1) & " / "
-            & Image ((Count + Rows - 1) / Rows));
+            & Image ((Count - 1) / Rows + 1));
       end if;
    end Draw;
 
