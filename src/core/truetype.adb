@@ -438,6 +438,8 @@ is
             E, S, D, RO : Natural;
             Idx : Natural;
             G   : Natural;
+            Lo, Hi, Mid : Natural;
+            Seg : Natural;
          begin
             U16 (F, F.Cmap_Sub.Offset + 6, Seg_X2, Ok);
             if not Ok or else Seg_X2 = 0 then
@@ -449,32 +451,55 @@ is
             Deltas := Starts + Seg_X2;
             Ranges := Deltas + Seg_X2;
 
-            --  Segments are sorted by endCode; find the first whose end >= C.
-            for Seg in 0 .. Seg_Count - 1 loop
-               U16 (F, Ends + Seg * 2, E, Ok);
-               exit when not Ok;
-               if E >= C then
-                  U16 (F, Starts + Seg * 2, S, Ok);
-                  exit when not Ok;
-                  if S > C then
-                     return 0;              --  falls in a hole between segments
-                  end if;
-                  U16 (F, Deltas + Seg * 2, D, Ok);
-                  U16 (F, Ranges + Seg * 2, RO, Ok);
-                  exit when not Ok;
-                  if RO = 0 then
-                     G := (C + D) mod 65_536;
-                  else
-                     --  rangeOffset is a byte offset from its OWN slot into
-                     --  glyphIdArray -- the quirk of this format.
-                     U16 (F, Ranges + Seg * 2 + RO + (C - S) * 2, Idx, Ok);
-                     exit when not Ok;
-                     G := (if Idx = 0 then 0 else (Idx + D) mod 65_536);
-                  end if;
-                  return (if G < F.N_Glyphs then G else 0);
+            --  Segments are sorted by endCode; find the first whose end >= C
+            --  by bisection (a CJK face has thousands of segments).  In a
+            --  table that is not sorted this finds some segment, or none,
+            --  and the glyph id is checked as always.
+            Lo := 0;
+            Hi := Seg_Count;
+            while Lo < Hi loop
+               pragma Loop_Invariant (Hi <= Seg_Count);
+               pragma Loop_Variant (Decreases => Hi - Lo);
+               Mid := Lo + (Hi - Lo) / 2;
+               U16 (F, Ends + Mid * 2, E, Ok);
+               if not Ok then
+                  return 0;
+               end if;
+               if E < C then
+                  Lo := Mid + 1;
+               else
+                  Hi := Mid;
                end if;
             end loop;
-            return 0;
+            if Lo >= Seg_Count then
+               return 0;
+            end if;
+            Seg := Lo;
+
+            U16 (F, Starts + Seg * 2, S, Ok);
+            if not Ok or else S > C then
+               return 0;              --  falls in a hole between segments
+            end if;
+            U16 (F, Deltas + Seg * 2, D, Ok);
+            if not Ok then
+               return 0;
+            end if;
+            U16 (F, Ranges + Seg * 2, RO, Ok);
+            if not Ok then
+               return 0;
+            end if;
+            if RO = 0 then
+               G := (C + D) mod 65_536;
+            else
+               --  rangeOffset is a byte offset from its OWN slot into
+               --  glyphIdArray -- the quirk of this format.
+               U16 (F, Ranges + Seg * 2 + RO + (C - S) * 2, Idx, Ok);
+               if not Ok then
+                  return 0;
+               end if;
+               G := (if Idx = 0 then 0 else (Idx + D) mod 65_536);
+            end if;
+            return (if G < F.N_Glyphs then G else 0);
          end;
       else
          return 0;

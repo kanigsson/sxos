@@ -31,7 +31,7 @@ project SXOS is
       --  instances of the proved generics (Fat32, Card_Scan, Store_Log) in
       --  src/device: an instance takes its instantiating unit's switches.
       --  A unit that becomes fully SPARK and proved belongs on this list.
-      --  Off it until re-proved after kerning and grey text:
+      --  Off it until re-proved after kerning, grey text and Korean:
       --  mono_frame.adb, page_layout.adb, reader_view.adb,
       --  reading_settings.adb, settings_view.adb, text_metrics.adb,
       --  text_raster.adb, truetype.adb.
