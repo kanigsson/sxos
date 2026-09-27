@@ -8,5 +8,8 @@ package X4_Touch is
    --  Poll the digitizer.  Contact is True exactly once per touch, on the
    --  press edge; X/Y then carry the first contact's position in the same
    --  portrait 480x800 frame X4_Display draws in (PX 0..479, PY 0..799).
-   procedure Read_Contact (X, Y : out Natural; Contact : out Boolean);
+   --  Home is True exactly once per press of the capacitive Home key below
+   --  the panel, on the press edge; a frame with Home set reports no
+   --  contact.
+   procedure Read_Contact (X, Y : out Natural; Contact, Home : out Boolean);
 end X4_Touch;

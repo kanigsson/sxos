@@ -728,6 +728,25 @@ procedure Main is
       end case;
    end On_Tap;
 
+   --  The Home key: back to the Library from anywhere, closing the open
+   --  book as the menu's Library button does.  Settings are saved first;
+   --  a face change there may already have closed the book (Make_Room).
+   procedure On_Home is
+      use type Reading_Settings.Values;
+   begin
+      Put_Line ("[input] home key in " & Current'Image);
+      if Current = Settings and then Prefs /= Before then
+         Save_Settings;
+      end if;
+      if Card_Reader.Is_Open then
+         Close_Book;
+      elsif Current /= Library then
+         Remember_Book (0);
+         Current := Library;
+         Render_Library;
+      end if;
+   end On_Home;
+
    --  Debounced, edge-triggered button scan at a fixed poll cadence.
    type Button_State is record
       Pressed : Boolean := False;
@@ -934,9 +953,13 @@ begin
       declare
          TX, TY  : Natural;
          Contact : Boolean;
+         Home    : Boolean;
       begin
-         X4_Touch.Read_Contact (TX, TY, Contact);
-         if Contact then
+         X4_Touch.Read_Contact (TX, TY, Contact, Home);
+         if Home then
+            Last_Input := Clock;
+            On_Home;
+         elsif Contact then
             Last_Input := Clock;
             On_Tap (TX, TY);
          end if;

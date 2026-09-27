@@ -15,7 +15,7 @@ is in [`design.md`](design.md).
   way back to the page before a jump; better fallback labels than
   "Chapter N" (the chapter's first line, which needs every chapter
   loaded); unlinked headings (`<span>` in a nav `<li>`) shown as
-  headings; the Home key opening Contents.
+  headings.
 - **Headings.** `Xhtml_Text` flattens headings into plain paragraphs.
   Keeping the fact that a paragraph is a heading would allow centring it
   and adding space around it, with no new fonts.
@@ -80,8 +80,6 @@ In order:
 
 ## Input and power
 
-- **Home key as Back.** The GT911 has a capacitive Home key (FreeInk's X4
-  Pro profile: `hasHomeKey`); unused so far.
 - **Lower sleep current.** The HAL's `Enter_Deep_Sleep` does no regulator
   (dbias) tuning. Measure the current first.
 - **Drop the peripheral rail when off.** GPIO1 is held high through sleep

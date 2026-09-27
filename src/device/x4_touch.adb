@@ -26,9 +26,12 @@ package body X4_Touch is
    Available : Boolean := False;
    Address   : ESP32S3.I2C.Slave_Address := 0;
    Touching  : Boolean := False;  --  contact edge tracking
+   Home_Down : Boolean := False;  --  Home key edge tracking
 
    --  GT911 register map; register addresses are 16-bit, high byte first.
-   Reg_Status : constant := 16#814E#;  --  bit7 ready, low nibble contacts
+   Reg_Status : constant := 16#814E#;
+   --  bit7 ready, bit4 Home key down (FreeInk's X4 Pro profile), low nibble
+   --  contacts
    Reg_Points : constant := 16#8150#;  --  8-byte records, X-lo at byte 0
 
    procedure Reset_Dance (Int_Level : Boolean) is
@@ -97,6 +100,7 @@ package body X4_Touch is
       Address := Find_Controller;
       Available := Address /= 0;
       Touching := False;
+      Home_Down := False;
       Present := Available;
       if Present then
          Put ("[tp] GT911 found at 0x");
@@ -107,7 +111,8 @@ package body X4_Touch is
       end if;
    end Initialize;
 
-   procedure Read_Contact (X, Y : out Natural; Contact : out Boolean) is
+   procedure Read_Contact (X, Y : out Natural; Contact, Home : out Boolean)
+   is
       Bus       : Session;
       Ok        : Boolean;
       Points_Ok : Boolean;
@@ -119,6 +124,7 @@ package body X4_Touch is
       X := 0;
       Y := 0;
       Contact := False;
+      Home := False;
       if not Available then
          return;
       end if;
@@ -138,6 +144,16 @@ package body X4_Touch is
          Release (Bus);
          return;  --  no fresh frame
       end if;
+
+      --  The key state only changes with a fresh frame, like the contacts.
+      if (Status and 16#10#) /= 0 then
+         Home := not Home_Down;
+         Home_Down := True;
+         Write (Bus, Address, (16#81#, 16#4E#, 16#00#), Ok);
+         Release (Bus);
+         return;
+      end if;
+      Home_Down := False;
 
       Contacts := Natural (Status and 16#0F#);
       if Contacts > 0 then

@@ -125,6 +125,7 @@ fixed there, not by flashing.
 | Contents | tap ◀ / ▶ / Back (footer) | previous / next page of entries; back to the page |
 | Library | tap Settings (footer) | Settings |
 | Library | tap ◀ / ▶ (footer) | previous / next page of books |
+| any | Home key | close the open book (settings saved), back to the Library |
 | any | Power, or 10 min without input | sleep screen, deep sleep; Power wakes into the open book |
 | any | hold Power 1.5 s | off; hold 1 s to turn on into the Library |
 | Settings | tap ◀ / ▶, − / + (or Left / Right) | reading face, reading size, with a sample paragraph; Done returns to the caller |
@@ -466,7 +467,9 @@ inverted planes; see the roadmap.
 
 - **Input:** besides Left (GPIO0), Right (GPIO7) and Power (GPIO3), the
   GT911 has a capacitive **Home key** (FreeInk's X4 Pro profile:
-  `hasHomeKey`) — a natural Back button (not used yet).
+  `hasHomeKey`): bit 4 of the status register (`0x814E`), updated with
+  each fresh frame like the contacts. `X4_Touch.Read_Contact` reports its
+  press edge.
 - **Charging:** the charger's STAT line is GPIO21, active high; `Gauge.Read`
   already reports it.
 - **Test data:** `docs/test-card.md`.
