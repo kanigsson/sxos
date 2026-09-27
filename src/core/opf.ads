@@ -18,10 +18,14 @@ is
      with Post => Within (Doc, Language'Result);
 
    --  A manifest entry.  Html is False for media types other than
-   --  (X)HTML, e.g. an SVG-only page, which the reader cannot show.
+   --  (X)HTML, e.g. an SVG-only page, which the reader cannot show.  Nav
+   --  marks the EPUB 3 navigation document (properties="nav"), Ncx an
+   --  EPUB 2 table of contents (media type application/x-dtbncx+xml).
    type Item is record
       Id, Href : Span;
       Html     : Boolean := False;
+      Nav      : Boolean := False;
+      Ncx      : Boolean := False;
    end record;
    type Item_Array is array (Positive range <>) of Item;
    type Span_Array is array (Positive range <>) of Span;
@@ -36,6 +40,13 @@ is
       Items : out Item_Array;
       Count : out Natural)
      with Post => Count <= Items'Length;
+
+   --  The hrefs of the book's tables of contents: the first navigation
+   --  document and the first NCX (empty where there is none).
+   procedure Toc_Hrefs
+     (Items : Item_Array;
+      Nav   : out Span;
+      Ncx   : out Span);
 
    --  The hrefs of the spine's (X)HTML items, in reading order.  An idref
    --  with no matching manifest item is skipped.

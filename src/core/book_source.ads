@@ -1,7 +1,11 @@
+with Interfaces;
+
 with Bytes;
 with Fat32;
 with Opf;
 with Shelf;
+with Toc;
+with Xhtml_Text;
 with Xml_Scan;
 
 --  Open a book from /Books and hand out its text one chapter at a time.
@@ -37,7 +41,12 @@ package Book_Source is
    --  Target size of the sections a .txt file is served in.
    Section_Size : constant := 64 * 1024;
 
+   --  Anchors (element ids) recorded per EPUB chapter; later ones are
+   --  not found.
+   Max_Anchors : constant := 4096;
+
    type String_Access is access String;
+   type Line_Array_Access is access Toc.Line_Array;
 
    type Book is limited private;
 
@@ -68,10 +77,46 @@ package Book_Source is
    function Text (B : Book) return String_Access;
    function Text_Last (B : Book) return Natural;
 
+   --  Where the element with id Hash (Xhtml_Text.Id_Hash) starts in the
+   --  loaded chapter's text; 0 if the chapter has no such anchor.
+   function Anchor_Offset
+     (B : Book; Hash : Interfaces.Unsigned_32) return Natural;
+
+   --  The table of contents.  Only EPUBs have one: a TXT file's sections
+   --  are arbitrary cuts.
+   function Has_Contents (B : Book) return Boolean;
+
+   --  Read the table of contents, unless it is already in memory: the
+   --  nav document's, or the NCX's if that gives none (see Toc), each
+   --  entry's target resolved to a chapter and an anchor.  Entries whose file is not a chapter are
+   --  left out.  A book with no usable one gets an entry per chapter
+   --  ("Chapter N").  Uses the member buffer, not the chapter's text.
+   procedure Load_Contents (V : in out FS.Volume; B : in out Book)
+     with Pre => Has_Contents (B);
+
+   --  Entries I in 1 .. Contents_Count (B) (0 before Load_Contents):
+   --  Contents_Lines (B) (I), with labels in Contents_Labels (B).
+   function Contents_Count (B : Book) return Natural;
+   function Contents_Lines (B : Book) return Line_Array_Access;
+   function Contents_Labels (B : Book) return String_Access;
+
+   --  Where entry I leads: a chapter, and perhaps an anchor in it.
+   type Target is record
+      Chapter    : Positive := 1;
+      Has_Anchor : Boolean := False;
+      Anchor     : Interfaces.Unsigned_32 := 0;
+   end record;
+
+   function Contents_Target (B : Book; I : Positive) return Target
+     with Pre => I <= Contents_Count (B);
+
 private
    type Span_Array_Access is access Opf.Span_Array;
    type Index_Array is array (Positive range <>) of Positive;
    type Index_Array_Access is access Index_Array;
+   type Anchor_Array_Access is access Xhtml_Text.Anchor_Array;
+   type Target_Array is array (Positive range <>) of Target;
+   type Target_Array_Access is access Target_Array;
 
    type Book is limited record
       Format   : Shelf.Book_Format := Shelf.Unknown;
@@ -85,6 +130,20 @@ private
       Opf_Doc  : String_Access;
       Spine    : Span_Array_Access;
       Lang     : Xml_Scan.Span;   --  in Opf_Doc
+      --  The nav document's and the NCX's hrefs, in Opf_Doc (empty if
+      --  none).
+      Nav_Href : Xml_Scan.Span;
+      Ncx_Href : Xml_Scan.Span;
+
+      --  The loaded chapter's anchors.
+      Anchors  : Anchor_Array_Access;
+      Anchor_Count : Natural := 0;
+
+      --  The table of contents, once loaded.
+      Lines    : Line_Array_Access;
+      Labels   : String_Access;
+      Targets  : Target_Array_Access;
+      Entries  : Natural := 0;
 
       --  TXT: the whole normalised text and where each section starts
       --  (Chapters + 1 entries; the last is one past the end).
@@ -106,4 +165,11 @@ private
       then "" else Xml_Scan.Text (B.Opf_Doc.all, B.Lang));
    function Text (B : Book) return String_Access is (B.Text);
    function Text_Last (B : Book) return Natural is (B.Text_Last);
+   function Has_Contents (B : Book) return Boolean is
+     (Shelf."=" (B.Format, Shelf.EPUB) and then B.Chapters > 0);
+   function Contents_Count (B : Book) return Natural is (B.Entries);
+   function Contents_Lines (B : Book) return Line_Array_Access is (B.Lines);
+   function Contents_Labels (B : Book) return String_Access is (B.Labels);
+   function Contents_Target (B : Book; I : Positive) return Target is
+     (B.Targets (I));
 end Book_Source;

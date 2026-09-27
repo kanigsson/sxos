@@ -5,6 +5,16 @@ package body Xhtml_Text
   with SPARK_Mode => On
 is
    use type UTF8.Code_Point;
+   use type Interfaces.Unsigned_32;
+
+   function Id_Hash (Id : String) return Interfaces.Unsigned_32 is
+      H : Interfaces.Unsigned_32 := 16#811C_9DC5#;
+   begin
+      for C of Id loop
+         H := (H xor Character'Pos (C)) * 16#0100_0193#;
+      end loop;
+      return H;
+   end Id_Hash;
 
    --  Named entities: the XML five, Latin-1 and common typography.
    type Entity is record
@@ -307,6 +317,25 @@ is
       Output : out String;
       Last   : out Natural)
    is
+      None  : Anchor_Array (1 .. 0);
+      Count : Natural;
+      pragma Warnings
+        (GNATprove, Off, """None"" is set by ""Convert"" but not used*",
+         Reason => "no anchors are wanted");
+      pragma Warnings
+        (GNATprove, Off, """Count"" is set by ""Convert"" but not used*",
+         Reason => "no anchors are wanted");
+   begin
+      Convert (Input, Output, Last, None, Count);
+   end Convert;
+
+   procedure Convert
+     (Input   : String;
+      Output  : out String;
+      Last    : out Natural;
+      Anchors : out Anchor_Array;
+      Count   : out Natural)
+   is
       P             : Positive := (if Input'Length > 0 then Input'First else 1);
       Tag           : Span;
       Name          : Span;
@@ -318,6 +347,7 @@ is
       Code          : UTF8.Code_Point;
       Next          : Positive;
       Ok            : Boolean;
+      Id            : Span;
 
       --  Emit the separator owed before the next piece of text.
       procedure Emit_Separator is
@@ -341,6 +371,8 @@ is
    begin
       Output := (others => ' ');
       Last := 0;
+      Anchors := (others => (Hash => 0, Offset => 1));
+      Count := 0;
       if Input'Length = 0 then
          return;
       end if;
@@ -348,10 +380,27 @@ is
       --  Positive'Last.
       while P <= Input'Last and then Last < Output'Last loop
          pragma Loop_Invariant (P >= Input'First and then Last <= Output'Last);
+         pragma Loop_Invariant (Count <= Anchors'Length);
          if Input (P) = '<' then
             Next_Tag (Input, P, Tag, Found);
             exit when not Found;
             Tag_Name (Input, Tag, Name, Closing);
+            if not Closing and then Skip_Depth = 0
+              and then Count < Anchors'Length and then not Is_Empty (Name)
+            then
+               Attribute (Input, Tag, "id", Id, Found);
+               if not Found and then Name.Last = Name.First
+                 and then Lower (Input (Name.First)) = 'a'
+               then
+                  Attribute (Input, Tag, "name", Id, Found);
+               end if;
+               if Found and then not Is_Empty (Id) then
+                  Count := Count + 1;
+                  Anchors (Anchors'First + (Count - 1)) :=
+                    (Hash   => Id_Hash (Input (Id.First .. Id.Last)),
+                     Offset => Last + 1);
+               end if;
+            end if;
             if Is_Empty (Name) then
                null;
             elsif Is_One_Of (Input, Name, Skipped) then
@@ -424,5 +473,25 @@ is
       if Last > 0 and then Output (Last) = ' ' then
          Last := Last - 1;
       end if;
+
+      --  An anchor was recorded before the separator its text got: move
+      --  it onto the text.  (One recorded before a trailing space, just
+      --  dropped, is past Last + 1: it goes to Last + 1.)
+      for K in Anchors'First .. Anchors'First + Count - 1 loop
+         pragma Loop_Invariant
+           (for all J in Anchors'First .. K - 1
+            => Anchors (J).Offset <= Last + 1);
+         declare
+            O : Positive := Anchors (K).Offset;
+         begin
+            while O <= Last
+              and then (Output (O) = Paragraph_Break or else Output (O) = ' ')
+            loop
+               pragma Loop_Invariant (O <= Last);
+               O := O + 1;
+            end loop;
+            Anchors (K).Offset := Positive'Min (O, Last + 1);
+         end;
+      end loop;
    end Convert;
 end Xhtml_Text;

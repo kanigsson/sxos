@@ -5,7 +5,10 @@
 --  tap on the selected one opens it.  Reader: Right or a tap on the right
 --  two thirds turns forward, Left or a tap on the left third back; a tap on
 --  the top band opens the menu over the page, whose Library button closes
---  the book.  Settings, opened from the Library's footer or the Reader's
+--  the book.  Contents, opened from the menu (EPUBs only): the book's table
+--  of contents on the page of the entry being read; the nav buttons move
+--  the selection, a tap selects an entry and a tap on the selected one goes
+--  there; Back returns to the page.  Settings, opened from the Library's footer or the Reader's
 --  menu: the reading face and size (the nav buttons change the size), and
 --  whether the book's text is grey (anti-aliased, X4_Display.Show_Grey);
 --  they are kept in internal flash, and a change of face or size re-lays
@@ -52,6 +55,7 @@ with Shelf;
 with Sleep_View;
 with Status_Bar;
 with Store_Record;
+with Toc_View;
 with Truetype;
 with X4_Display;
 with X4_Touch;
@@ -94,8 +98,13 @@ procedure Main is
    Selected : Natural := 0;
    Touch_OK : Boolean;
 
-   type Mode is (Library, Reading, Menu, Settings);
+   type Mode is (Library, Reading, Menu, Contents, Settings);
    Current : Mode := Library;
+
+   --  While in Contents: the selected entry, and the one being read (0:
+   --  none).
+   Toc_Selected : Natural := 0;
+   Toc_Here     : Natural := 0;
 
    --  While in Settings: the screen to return to (Library or Reading), the
    --  settings on the way in, and whether the reading face was reloaded.
@@ -271,6 +280,77 @@ procedure Main is
          X4_Display.Show (Screen, Kind);
       end if;
    end Render_Reader;
+
+   procedure Render_Contents is
+      T0 : constant Time := Clock;
+   begin
+      Toc_View.Draw
+        (Screen, UI_Font, Shelf.Title (Books, Open_Index),
+         Card_Reader.Contents_Labels.all,
+         Card_Reader.Contents_Lines (1 .. Card_Reader.Contents_Count),
+         Toc_Selected, Toc_Here, Gauge.Read);
+      Put ("[contents] entry");
+      Put (Toc_Selected);
+      Put (" of");
+      Put (Card_Reader.Contents_Count);
+      Put (" drawn in ");
+      Put (Ms_Since (T0));
+      Put_Line (" ms");
+      X4_Display.Show (Screen);
+   end Render_Contents;
+
+   --  From the menu: the table of contents, read on first use.
+   procedure Open_Contents is
+      T0 : constant Time := Clock;
+   begin
+      Card_Reader.Load_Contents (Volume);
+      Toc_Here := Card_Reader.Contents_Here;
+      Toc_Selected := (if Toc_Here = 0 then 1 else Toc_Here);
+      Put ("[contents]");
+      Put (Card_Reader.Contents_Count);
+      Put (" entries, reading entry");
+      Put (Toc_Here);
+      Put (", in ");
+      Put (Ms_Since (T0));
+      Put (" ms, heap free ");
+      Put (Integer (Heap_Free) / 1024);
+      Put_Line (" KB");
+      Current := Contents;
+      Render_Contents;
+   end Open_Contents;
+
+   procedure Set_Toc_Selection (I : Natural) is
+   begin
+      if I in 1 .. Card_Reader.Contents_Count and then I /= Toc_Selected then
+         Toc_Selected := I;
+         Render_Contents;
+      end if;
+   end Set_Toc_Selection;
+
+   --  Go to entry I and read on from there.
+   procedure Go_To_Contents (I : Positive) is
+      T0    : constant Time := Clock;
+      Moved : Boolean;
+   begin
+      Card_Reader.Go_To_Entry (Volume, I, Moved);
+      Put ("[contents] go to entry");
+      Put (I);
+      Put (": chapter");
+      Put (Card_Reader.Chapter);
+      Put (" page");
+      Put (Card_Reader.Page);
+      Put ("/");
+      Put (Card_Reader.Page_Count);
+      Put (" in ");
+      Put (Ms_Since (T0));
+      Put_Line (if Moved then " ms" else " ms, but it has no text");
+      if Moved then
+         Unsaved := True;
+         Turned := Clock;
+      end if;
+      Current := Reading;
+      Render_Reader (X4_Display.Clean);
+   end Go_To_Contents;
 
    procedure Set_Selection (I : Natural) is
    begin
@@ -572,6 +652,8 @@ procedure Main is
          when Menu =>
             Current := Reading;
             Render_Reader;
+         when Contents =>
+            Set_Toc_Selection (Toc_Selected + Step);
          when Settings =>
             On_Settings
               (if Step > 0 then Settings_View.Larger
@@ -612,15 +694,35 @@ procedure Main is
                   Turn (1);
             end case;
          when Menu =>
-            case Reader_View.Menu_At (X, Y) is
+            case Reader_View.Menu_At (X, Y, Card_Reader.Has_Contents) is
                when Reader_View.Library =>
                   Close_Book;
+               when Reader_View.Contents =>
+                  Open_Contents;
                when Reader_View.Settings =>
                   Open_Settings (Reading);
                when Reader_View.Close =>
                   Current := Reading;
                   Render_Reader;
             end case;
+         when Contents =>
+            if Toc_View.Back_At (X, Y) then
+               Current := Reading;
+               Render_Reader;
+            elsif Toc_View.Page_Step_At (X, Y) /= 0 then
+               Set_Toc_Selection
+                 (Toc_View.Page_Target
+                    (UI_Font, Card_Reader.Contents_Count, Toc_Selected,
+                     Toc_View.Page_Step_At (X, Y)));
+            else
+               Hit := Toc_View.Entry_At
+                 (UI_Font, Card_Reader.Contents_Count, Toc_Selected, Y);
+               if Hit /= 0 and then Hit = Toc_Selected then
+                  Go_To_Contents (Hit);
+               else
+                  Set_Toc_Selection (Hit);
+               end if;
+            end if;
          when Settings =>
             On_Settings (Settings_View.Action_At (X, Y));
       end case;

@@ -220,6 +220,80 @@ package body Reader is
    function Page return Natural is (Shown);
    function Page_Count return Natural is (Pages);
 
+   function Has_Contents return Boolean is
+     (Opened and then Books.Has_Contents (Book));
+
+   procedure Load_Contents (V : in out FS.Volume) is
+   begin
+      Books.Load_Contents (V, Book);
+   end Load_Contents;
+
+   function Contents_Count return Natural is
+     (if Opened then Books.Contents_Count (Book) else 0);
+   function Contents_Lines return Books.Line_Array_Access is
+     (Books.Contents_Lines (Book));
+   function Contents_Labels return Books.String_Access is
+     (Books.Contents_Labels (Book));
+
+   --  Where entry I's target is in the current chapter's text: its
+   --  anchor, or the start.
+   function Entry_Offset (T : Books.Target) return Positive is
+      O : constant Natural :=
+        (if T.Has_Anchor then Books.Anchor_Offset (Book, T.Anchor) else 0);
+   begin
+      return (if O = 0 then 1 else O);
+   end Entry_Offset;
+
+   function Contents_Here return Natural is
+      --  The page ends before the next one's start (or the text's end).
+      Page_End : constant Positive :=
+        (if Pages > 0 and then Shown < Pages then Starts (Shown + 1)
+         else Text_Last + 1);
+      Best     : Natural := 0;
+      Best_Ch  : Natural := 0;
+      Best_Off : Positive := 1;
+   begin
+      for I in 1 .. Contents_Count loop
+         declare
+            T   : constant Books.Target := Books.Contents_Target (Book, I);
+            Off : Positive := 1;
+         begin
+            if T.Chapter = Current then
+               Off := Entry_Offset (T);
+            end if;
+            if (T.Chapter < Current
+                or else (T.Chapter = Current and then Off < Page_End))
+              and then (T.Chapter > Best_Ch
+                        or else (T.Chapter = Best_Ch and then Off >= Best_Off))
+            then
+               Best := I;
+               Best_Ch := T.Chapter;
+               Best_Off := Off;
+            end if;
+         end;
+      end loop;
+      return Best;
+   end Contents_Here;
+
+   procedure Go_To_Entry
+     (V : in out FS.Volume; I : Positive; Moved : out Boolean)
+   is
+      T   : constant Books.Target := Books.Contents_Target (Book, I);
+      Was : constant Position := Where;
+   begin
+      Seek (V, T.Chapter, 1, Moved);
+      if Moved then
+         if Current = T.Chapter and then Pages > 0 then
+            Shown := Page_Layout.Page_Of (Starts.all, Pages, Entry_Offset (T));
+         end if;
+      elsif Was.Chapter > 0 then
+         Load (V, Was.Chapter);
+         if Pages > 0 then
+            Shown := Page_Layout.Page_Of (Starts.all, Pages, Was.Offset);
+         end if;
+      end if;
+   end Go_To_Entry;
+
    procedure Draw
      (Fr    : in out Mono_Frame.Frame;
       Masks : in out Mono_Frame.Grey_Masks;
@@ -244,7 +318,7 @@ package body Reader is
       end if;
       if Menu then
          Reader_View.Draw_Menu
-           (Fr, UI, Current, Chapter_Count, Shown, Pages);
+           (Fr, UI, Current, Chapter_Count, Shown, Pages, Has_Contents);
       end if;
    end Draw;
 

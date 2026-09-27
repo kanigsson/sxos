@@ -13,6 +13,10 @@
 --                                  against Reader_View's measure, and
 --                                  report lines the next word would fit
 --                                  on.  PREVIEW_FACE names the face.
+--    book_check IMAGE --toc [NAME]  print every EPUB's (or NAME's) table
+--                                  of contents as the Reader resolves it:
+--                                  each entry's chapter, and where its
+--                                  anchor is in that chapter's text
 with Ada.Calendar; use Ada.Calendar;
 with Ada.Environment_Variables;
 with Ada.Command_Line; use Ada.Command_Line;
@@ -33,6 +37,7 @@ with Reader_View;
 with Reading_Settings;
 with Shelf;
 with Text_Metrics;
+with Toc;
 with Truetype;
 with UTF8;
 
@@ -258,6 +263,66 @@ procedure Book_Check is
       Close (F);
    end Dump;
 
+   Missing : Natural := 0;
+
+   procedure List_Contents (Name : String) is
+      Result : Books.Status;
+      Loaded : Natural := 0;
+   begin
+      Books.Open (V, Name, B, Result);
+      if Result /= Books.OK or else not Books.Has_Contents (B) then
+         return;
+      end if;
+      Books.Load_Contents (V, B);
+      Put_Line (Name & ":" & Books.Contents_Count (B)'Image & " entries,"
+                & Books.Chapter_Count (B)'Image & " chapters");
+      for I in 1 .. Books.Contents_Count (B) loop
+         declare
+            L : constant Toc.Line := Books.Contents_Lines (B) (I);
+            T : constant Books.Target := Books.Contents_Target (B, I);
+            Label : constant String :=
+              Books.Contents_Labels (B) (L.First .. L.Last);
+            Where : Natural := 1;
+         begin
+            if T.Has_Anchor then
+               if Loaded /= T.Chapter then
+                  Books.Load (V, B, T.Chapter, Result);
+                  Loaded := T.Chapter;
+               end if;
+               Where := Books.Anchor_Offset (B, T.Anchor);
+            end if;
+            Put ((1 .. 2 * L.Level => ' ') & Label & "  -> chapter"
+                 & T.Chapter'Image);
+            if not T.Has_Anchor then
+               New_Line;
+            elsif Where = 0 then
+               Missing := Missing + 1;
+               Put_Line (", anchor NOT FOUND");
+            else
+               declare
+                  Text : String renames Books.Text (B) (1 .. Books.Text_Last (B));
+                  E    : Natural := Natural'Min (Text'Last, Where + 30);
+               begin
+                  --  Stop at a paragraph end, and not inside a UTF-8
+                  --  sequence.
+                  for K in Where .. E loop
+                     if Text (K) = ASCII.LF then
+                        E := K - 1;
+                        exit;
+                     end if;
+                  end loop;
+                  while E >= Where and then E < Text'Last
+                    and then Character'Pos (Text (E + 1)) in 16#80# .. 16#BF#
+                  loop
+                     E := E - 1;
+                  end loop;
+                  Put_Line (" @" & Where'Image & ": " & Text (Where .. E));
+               end;
+            end if;
+         end;
+      end loop;
+   end List_Contents;
+
    L    : Shelf.List;
    Scan : Image_Scan.Scan_Status;
 begin
@@ -266,6 +331,18 @@ begin
    if Status /= Image_FS.OK then
       Put_Line ("mount: " & Status'Image);
       Set_Exit_Status (Failure);
+      return;
+   end if;
+   if Argument_Count >= 2 and then Argument (2) = "--toc" then
+      if Argument_Count >= 3 then
+         List_Contents (Argument (3));
+      else
+         Image_Scan.Scan_Books (V, L, Scan);
+         for I in 1 .. L.Count loop
+            List_Contents (Shelf.Name (L, I));
+         end loop;
+      end if;
+      Put_Line ("anchors not found:" & Missing'Image);
       return;
    end if;
    if Argument_Count >= 2 and then Argument (2) = "--layout" then

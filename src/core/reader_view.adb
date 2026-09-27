@@ -12,15 +12,25 @@ is
    Foot_Size : constant := 20;
    Menu_Size : constant := 26;
 
-   --  The menu panel and its two buttons, side by side.
+   --  The menu panel and its buttons, side by side: Library, Contents
+   --  (when the book has a table of contents) and Settings.
    Panel_Top    : constant := Status_Bar.Height;
    Panel_Height : constant := 190;
-   Button_X     : constant := 30;
-   Button_Gap   : constant := 20;
+   Button_X     : constant := 20;
+   Button_Gap   : constant := 16;
    Button_Y     : constant := Panel_Top + 90;
-   Button_W     : constant := (Mono_Frame.Width - 2 * Button_X - Button_Gap) / 2;
    Button_H     : constant := 70;
-   Button_2_X   : constant := Button_X + Button_W + Button_Gap;
+
+   subtype Button_Count is Positive range 2 .. 3;
+
+   function Button_W (N : Button_Count) return Positive is
+     ((Mono_Frame.Width - 2 * Button_X - (N - 1) * Button_Gap) / N);
+
+   --  The left edge of button K (0-based) of N.
+   function Button_Left (K : Natural; N : Button_Count) return Natural is
+     (Button_X + K * (Button_W (N) + Button_Gap))
+     with Pre  => K < N,
+          Post => Button_Left'Result + Button_W (N) <= Mono_Frame.Width;
 
    --  Taps above this line open the menu.
    Menu_Band : constant := Status_Bar.Height + 40;
@@ -230,19 +240,19 @@ is
       else Forward);
 
    procedure Draw_Button
-     (Fr : in out Mono_Frame.Frame; UI : Truetype.Font; X : Integer;
-      Label : String)
-     with Pre => X in 0 .. Mono_Frame.Width
-                 and then Label'Last < Positive'Last
+     (Fr : in out Mono_Frame.Frame; UI : Truetype.Font; K : Natural;
+      N : Button_Count; Label : String)
+     with Pre => K < N and then Label'Last < Positive'Last
    is
       Asc  : constant Natural := Text_Raster.Ascent_Px (UI, Menu_Size);
       Desc : constant Natural := Text_Raster.Descent_Px (UI, Menu_Size);
+      X    : constant Natural := Button_Left (K, N);
+      W    : constant Positive := Button_W (N);
    begin
-      Mono_Frame.Frame_Rect (Fr, X, Button_Y, Button_W, Button_H);
-      Mono_Frame.Frame_Rect
-        (Fr, X + 1, Button_Y + 1, Button_W - 2, Button_H - 2);
+      Mono_Frame.Frame_Rect (Fr, X, Button_Y, W, Button_H);
+      Mono_Frame.Frame_Rect (Fr, X + 1, Button_Y + 1, W - 2, Button_H - 2);
       Text_Raster.Draw_Centered
-        (Fr, UI, Menu_Size, X, X + Button_W,
+        (Fr, UI, Menu_Size, X, X + W,
          Button_Y + (Button_H + Asc - Desc) / 2, Label);
    end Draw_Button;
 
@@ -250,8 +260,10 @@ is
      (Fr                : in out Mono_Frame.Frame;
       UI                : Truetype.Font;
       Chapter, Chapters : Natural;
-      Page, Pages       : Natural)
+      Page, Pages       : Natural;
+      Has_Contents      : Boolean)
    is
+      N : constant Button_Count := (if Has_Contents then 3 else 2);
    begin
       Mono_Frame.Fill_Rect
         (Fr, 0, Panel_Top, Mono_Frame.Width, Panel_Height, Black => False);
@@ -263,14 +275,30 @@ is
          "Chapter " & Image (Chapter) & " of " & Image (Chapters)
          & ", page " & Image (Page) & " of " & Image (Pages));
 
-      Draw_Button (Fr, UI, Button_X, "Library");
-      Draw_Button (Fr, UI, Button_2_X, "Settings");
+      Draw_Button (Fr, UI, 0, N, "Library");
+      if Has_Contents then
+         Draw_Button (Fr, UI, 1, N, "Contents");
+      end if;
+      Draw_Button (Fr, UI, N - 1, N, "Settings");
    end Draw_Menu;
 
-   function Menu_At (X, Y : Integer) return Menu_Choice is
-     (if Y not in Button_Y .. Button_Y + Button_H - 1 then Close
-      elsif X in Button_X .. Button_X + Button_W - 1 then Library
-      elsif X in Button_2_X .. Button_2_X + Button_W - 1 then Settings
-      else Close);
+   function Menu_At
+     (X, Y : Integer; Has_Contents : Boolean) return Menu_Choice
+   is
+      N : constant Button_Count := (if Has_Contents then 3 else 2);
+   begin
+      if Y not in Button_Y .. Button_Y + Button_H - 1 then
+         return Close;
+      end if;
+      for K in 0 .. N - 1 loop
+         if X in Button_Left (K, N) .. Button_Left (K, N) + Button_W (N) - 1
+         then
+            return (if K = 0 then Library
+                    elsif K = N - 1 then Settings
+                    else Contents);
+         end if;
+      end loop;
+      return Close;
+   end Menu_At;
 
 end Reader_View;

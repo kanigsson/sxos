@@ -34,7 +34,9 @@ project SXOS is
       --  Off it until re-proved after kerning, grey text and Korean:
       --  mono_frame.adb, page_layout.adb, reader_view.adb,
       --  reading_settings.adb, settings_view.adb, text_metrics.adb,
-      --  text_raster.adb, truetype.adb; never proved yet: fallback.adb.
+      --  text_raster.adb, truetype.adb; after the table of contents:
+      --  opf.adb, xhtml_text.adb; never proved yet: fallback.adb, toc.adb,
+      --  toc_view.adb.
       Proved := Base & ("-gnatp");
       for Switches ("bitmap_text.adb") use Proved;
       for Switches ("bytes.ads") use Proved;
@@ -42,7 +44,6 @@ project SXOS is
       for Switches ("hyphenation.adb") use Proved;
       for Switches ("language_guess.adb") use Proved;
       for Switches ("library_view.adb") use Proved;
-      for Switches ("opf.adb") use Proved;
       for Switches ("plain_text.adb") use Proved;
       for Switches ("shelf.adb") use Proved;
       for Switches ("sleep_view.adb") use Proved;
@@ -51,7 +52,6 @@ project SXOS is
       for Switches ("truetype-raster.adb") use Proved;
       for Switches ("utf8.adb") use Proved;
       for Switches ("x4_font.ads") use Proved;
-      for Switches ("xhtml_text.adb") use Proved;
       for Switches ("xml_scan.adb") use Proved;
       for Switches ("zip.adb") use Proved;
    end Compiler;

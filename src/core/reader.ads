@@ -67,6 +67,28 @@ package Reader is
    function Page return Natural;
    function Page_Count return Natural;
 
+   --  The table of contents (Book_Source.Load_Contents): EPUBs only.
+   function Has_Contents return Boolean;
+   procedure Load_Contents (V : in out FS.Volume)
+     with Pre => Is_Open and then Has_Contents;
+   function Contents_Count return Natural;
+   function Contents_Lines return Books.Line_Array_Access;
+   function Contents_Labels return Books.String_Access;
+
+   --  The entry the current page belongs to: the last one, in the order
+   --  of the book, that starts on this page or before it (0 if none).
+   --  Anchors in chapters other than the current one are taken to be at
+   --  their chapter's start.
+   function Contents_Here return Natural
+     with Pre => Is_Open;
+
+   --  Go to the page where entry I starts (the next chapter with text, if
+   --  its chapter has none).  Moved is False, and the position unchanged,
+   --  when there is no such page.
+   procedure Go_To_Entry
+     (V : in out FS.Volume; I : Positive; Moved : out Boolean)
+     with Pre => Is_Open and then I <= Contents_Count;
+
    --  The current page, with Title in the status bar, and the menu over it
    --  when Menu is set.  Everything but the book's text is in UI.  With
    --  Grey, the text is anti-aliased, its grey pixels marked in Masks (see

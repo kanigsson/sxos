@@ -6,7 +6,8 @@ with Truetype;
 
 --  The Reader screen: the status bar with the book's title, one page of the
 --  chapter, and the page number underneath.  Tapping the top band opens a
---  menu over the page (the way to the Library and to Settings); the left
+--  menu over the page (the way to the Library, the table of contents and
+--  Settings); the left
 --  third of the page turns back, the rest forward.
 --
 --  The page's text is in the reading face F; the status bar, the page
@@ -68,15 +69,20 @@ is
    function Zone_At (X, Y : Integer) return Zone;
 
    --  The menu, drawn over whatever is on Fr below the status bar: where
-   --  the reader is in the book, and Library and Settings buttons.
+   --  the reader is in the book, and Library, Contents (when the book has
+   --  a table of contents) and Settings buttons.
    procedure Draw_Menu
      (Fr                : in out Mono_Frame.Frame;
       UI                : Truetype.Font;
       Chapter, Chapters : Natural;
-      Page, Pages       : Natural);
+      Page, Pages       : Natural;
+      Has_Contents      : Boolean);
 
-   type Menu_Choice is (Library, Settings, Close);
+   type Menu_Choice is (Library, Contents, Settings, Close);
 
-   function Menu_At (X, Y : Integer) return Menu_Choice;
+   --  What a tap at portrait (X, Y) on the menu means, with Has_Contents
+   --  as for Draw_Menu.
+   function Menu_At
+     (X, Y : Integer; Has_Contents : Boolean) return Menu_Choice;
 
 end Reader_View;

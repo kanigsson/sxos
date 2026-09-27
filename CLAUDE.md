@@ -85,6 +85,7 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
   The PGM is portrait, as the device is held. Check layout and font changes
   there before flashing. The Reader and Settings need a card image:
   `preview.sh CARD.img reader out.pgm BOOK [CHAPTER [PAGE [SIZE [menu]]]]`,
+  `preview.sh CARD.img contents out.pgm BOOK [CHAPTER [PAGE [SIZE [SELECTED]]]]`,
   `preview.sh CARD.img settings out.pgm [SIZE]`; `PREVIEW_FACE=<file in
   /Fonts>` sets the reading face for both (default: the interface face),
   `PREVIEW_GREY=1` the grey text setting (the reader's PGM then has four
@@ -126,8 +127,9 @@ ESP_FLASH_MONITOR=1 timeout -s INT 60 ./flash.sh /dev/ttyACM0
 directories, or read a file back whole and in odd-sized chunks),
 `preview/obj/book_check IMAGE [BOOK OUT.txt]` opens every book and loads
 every chapter (or dumps one book's text; `--layout [SIZE]` also times
-pagination), `preview/obj/reader_check IMAGE [SIZE]` turns through every book
-to the end and back and checks the Reader's navigation,
+pagination; `--toc [BOOK]` prints the resolved tables of contents),
+`preview/obj/reader_check IMAGE [SIZE]` turns through every book to the end
+and back, goes to every contents entry, and checks the Reader's navigation,
 `preview/obj/store_check` runs `Store_Log` through simulated power cuts, and
 `preview/preview.sh CARD.img library out.pgm` renders through the same
 `Fat32`/`Card_Scan`/`Font_Loader` chain the firmware uses. Make an image with

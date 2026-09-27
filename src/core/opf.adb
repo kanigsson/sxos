@@ -106,6 +106,37 @@ is
    function Is_Html_Type (T : String) return Boolean is
      (Same_Text (T, "application/xhtml+xml") or else Same_Text (T, "text/html"));
 
+   --  Is Token one of the blank-separated words of S?
+   function Has_Word (S : String; Token : String) return Boolean is
+      I : Natural := S'First;
+      E : Natural;
+   begin
+      if S'Length = 0 or else Token'Length = 0 then
+         return False;
+      end if;
+      loop
+         pragma Loop_Invariant (I in S'Range);
+         pragma Loop_Variant (Increases => I);
+         if S (I) = ' ' then
+            exit when I = S'Last;
+            I := I + 1;
+         else
+            E := I;
+            while E < S'Last and then S (E + 1) /= ' ' loop
+               pragma Loop_Invariant (E in I .. S'Last - 1);
+               pragma Loop_Variant (Increases => E);
+               E := E + 1;
+            end loop;
+            if S (I .. E) = Token then
+               return True;
+            end if;
+            exit when E = S'Last;
+            I := E + 1;
+         end if;
+      end loop;
+      return False;
+   end Has_Word;
+
    procedure Read_Manifest
      (Doc   : String;
       Items : out Item_Array;
@@ -114,10 +145,10 @@ is
       Pos   : Positive := (if Doc'Length > 0 then Doc'First else 1);
       Tag   : Span;
       Found : Boolean;
-      Id, Href, Kind : Span;
-      Has_Id, Has_Href, Has_Kind : Boolean;
+      Id, Href, Kind, Props : Span;
+      Has_Id, Has_Href, Has_Kind, Has_Props : Boolean;
    begin
-      Items := (others => (Id => (1, 0), Href => (1, 0), Html => False));
+      Items := (others => (Id => (1, 0), Href => (1, 0), others => False));
       Count := 0;
       if Doc'Length = 0 then
          return;
@@ -130,12 +161,16 @@ is
             Attribute (Doc, Tag, "id", Id, Has_Id);
             Attribute (Doc, Tag, "href", Href, Has_Href);
             Attribute (Doc, Tag, "media-type", Kind, Has_Kind);
+            Attribute (Doc, Tag, "properties", Props, Has_Props);
             if Has_Id and then Has_Href then
                Count := Count + 1;
                Items (Items'First + (Count - 1)) :=
                  (Id   => Id,
                   Href => Href,
-                  Html => Has_Kind and then Is_Html_Type (Text (Doc, Kind)));
+                  Html => Has_Kind and then Is_Html_Type (Text (Doc, Kind)),
+                  Nav  => Has_Props and then Has_Word (Text (Doc, Props), "nav"),
+                  Ncx  => Has_Kind and then Same_Text
+                            (Text (Doc, Kind), "application/x-dtbncx+xml"));
             end if;
          end if;
       end loop;
@@ -200,6 +235,24 @@ is
          end if;
       end loop;
    end Read_Spine;
+
+   procedure Toc_Hrefs
+     (Items : Item_Array;
+      Nav   : out Span;
+      Ncx   : out Span)
+   is
+   begin
+      Nav := (1, 0);
+      Ncx := (1, 0);
+      for It of Items loop
+         if It.Nav and then Is_Empty (Nav) then
+            Nav := It.Href;
+         end if;
+         if It.Ncx and then Is_Empty (Ncx) then
+            Ncx := It.Href;
+         end if;
+      end loop;
+   end Toc_Hrefs;
 
    function Hex (C : Character) return Integer is
      (case C is

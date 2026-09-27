@@ -22,6 +22,13 @@ package body Book_Source is
    procedure Free is new Ada.Unchecked_Deallocation
      (Index_Array, Index_Array_Access);
 
+   procedure Free is new Ada.Unchecked_Deallocation
+     (Xhtml_Text.Anchor_Array, Anchor_Array_Access);
+   procedure Free is new Ada.Unchecked_Deallocation
+     (Toc.Line_Array, Line_Array_Access);
+   procedure Free is new Ada.Unchecked_Deallocation
+     (Target_Array, Target_Array_Access);
+
    type Item_Array_Access is access Opf.Item_Array;
    procedure Free is new Ada.Unchecked_Deallocation
      (Opf.Item_Array, Item_Array_Access);
@@ -54,8 +61,16 @@ package body Book_Source is
       Free (B.Packed);
       Free (B.Member);
       Free (B.Text);
+      Free (B.Anchors);
+      Free (B.Lines);
+      Free (B.Labels);
+      Free (B.Targets);
       B.Format := Shelf.Unknown;
       B.Lang := (First => 1, Last => 0);
+      B.Nav_Href := (First => 1, Last => 0);
+      B.Ncx_Href := (First => 1, Last => 0);
+      B.Anchor_Count := 0;
+      B.Entries := 0;
       B.Chapters := 0;
       B.Member_Size := 0;
       B.Text_Last := 0;
@@ -232,6 +247,7 @@ package body Book_Source is
          Item_Count : Natural;
       begin
          Opf.Read_Manifest (Doc, Items.all, Item_Count);
+         Opf.Toc_Hrefs (Items (1 .. Item_Count), B.Nav_Href, B.Ncx_Href);
          B.Spine := new Opf.Span_Array
            (1 .. Natural'Max (Opf.Count_Itemrefs (Doc), 1));
          Opf.Read_Spine (Doc, Items (1 .. Item_Count), B.Spine.all, B.Chapters);
@@ -316,6 +332,7 @@ package body Book_Source is
    is
    begin
       B.Text_Last := 0;
+      B.Anchor_Count := 0;
       if B.Format = Shelf.TXT then
          declare
             First : constant Positive := B.Starts (I);
@@ -346,11 +363,241 @@ package body Book_Source is
          return;
       end if;
       Reserve (B.Text, Natural'Max (B.Member_Size, 1));
+      if B.Anchors = null then
+         B.Anchors := new Xhtml_Text.Anchor_Array (1 .. Max_Anchors);
+      end if;
       declare
          Doc : String (1 .. B.Member_Size)
            with Import, Address => B.Member (0)'Address;
       begin
-         Xhtml_Text.Convert (Doc, B.Text (1 .. B.Member_Size), B.Text_Last);
+         Xhtml_Text.Convert
+           (Doc, B.Text (1 .. B.Member_Size), B.Text_Last,
+            B.Anchors.all, B.Anchor_Count);
       end;
    end Load;
+
+   function Anchor_Offset
+     (B : Book; Hash : Interfaces.Unsigned_32) return Natural is
+   begin
+      for K in 1 .. B.Anchor_Count loop
+         if B.Anchors (K).Hash = Hash then
+            return B.Anchors (K).Offset;
+         end if;
+      end loop;
+      return 0;
+   end Anchor_Offset;
+
+   --  The hash of the archive path Href leads to from the document at
+   --  Base, or 0 (Ok False) if it does not resolve.
+   procedure Path_Hash
+     (Base : String;
+      Href : String;
+      Hash : out Unsigned_32;
+      Ok   : out Boolean)
+   is
+      Path : String (1 .. 1024);
+      Last : Natural;
+   begin
+      Opf.Resolve (Base, Href, Path, Last, Ok);
+      Hash := (if Ok then Xhtml_Text.Id_Hash (Path (1 .. Last)) else 0);
+   end Path_Hash;
+
+   --  One entry per chapter, "Chapter N": for a book without a usable
+   --  table of contents.
+   procedure Contents_From_Spine (B : in out Book) is
+      Last : Natural := 0;
+   begin
+      B.Lines := new Toc.Line_Array (1 .. B.Chapters);
+      B.Targets := new Target_Array (1 .. B.Chapters);
+      B.Labels := new String (1 .. B.Chapters * 16);
+      for I in 1 .. B.Chapters loop
+         declare
+            N     : constant String := Positive'Image (I);
+            Label : constant String := "Chapter" & N;
+         begin
+            B.Labels (Last + 1 .. Last + Label'Length) := Label;
+            B.Lines (I) := (Level => 1, First => Last + 1,
+                            Last => Last + Label'Length);
+            B.Targets (I) := (Chapter => I, others => <>);
+            Last := Last + Label'Length;
+         end;
+      end loop;
+      B.Entries := B.Chapters;
+   end Contents_From_Spine;
+
+   --  Read the table of contents from the nav document (Is_Nav) or NCX
+   --  at Href, into B.Lines etc.; B.Entries = 0 and nothing allocated if
+   --  it gives no entries.
+   procedure Read_Contents
+     (V      : in out FS.Volume;
+      B      : in out Book;
+      Href   : Xml_Scan.Span;
+      Is_Nav : Boolean)
+   is
+      Result : Status;
+      Path   : String (1 .. 1024);
+      Last   : Natural;
+      Path_Ok     : Boolean;
+   begin
+      B.Entries := 0;
+      if Xml_Scan.Is_Empty (Href) then
+         return;
+      end if;
+      Opf.Resolve (B.Opf_Path.all, Xml_Scan.Text (B.Opf_Doc.all, Href),
+                   Path, Last, Path_Ok);
+      if Path_Ok then
+         Extract (V, B, Path (1 .. Last), Result);
+      end if;
+      if not Path_Ok or else Result /= OK or else B.Member_Size = 0 then
+         return;
+      end if;
+
+      declare
+         type Item_Array_Access is access Toc.Item_Array;
+         procedure Free is new Ada.Unchecked_Deallocation
+           (Toc.Item_Array, Item_Array_Access);
+         type Hash_Array is array (Positive range <>) of Unsigned_32;
+         type Hash_Array_Access is access Hash_Array;
+         procedure Free is new Ada.Unchecked_Deallocation
+           (Hash_Array, Hash_Array_Access);
+
+         Doc_Path : constant String := Path (1 .. Last);
+         Doc      : String (1 .. B.Member_Size)
+           with Import, Address => B.Member (0)'Address;
+         Items    : Item_Array_Access := new Toc.Item_Array
+           (1 .. Natural'Max (Toc.Count_Links (Doc, Is_Nav), 1));
+         Count    : Natural;
+         --  The hash of each chapter's archive path (0 if it does not
+         --  resolve).
+         Spine    : Hash_Array_Access := new Hash_Array (1 .. B.Chapters);
+         Room      : Natural := 0;   --  for all the labels
+         Max_Label : Natural := 0;
+         Min_Level : Toc.Level_Type := Toc.Max_Level;
+         Next      : Natural := 0;   --  where to start looking in Spine
+         Tmp       : String_Access;
+         N         : Natural := 0;   --  entries kept
+         Used      : Natural := 0;   --  of B.Labels
+      begin
+         Toc.Read (Doc, Is_Nav, Items.all, Count);
+         for I in 1 .. B.Chapters loop
+            Path_Hash (B.Opf_Path.all,
+                       Xml_Scan.Text (B.Opf_Doc.all, B.Spine (I)),
+                       Spine (I), Path_Ok);
+         end loop;
+         for I in 1 .. Count loop
+            declare
+               Len : constant Natural :=
+                 Items (I).Label.Last - Items (I).Label.First + 1;
+            begin
+               if Len > 0 then
+                  Room := Room + Len;
+                  Max_Label := Natural'Max (Max_Label, Len);
+               end if;
+               Room := Room + 16;   --  "Chapter N" for an empty label
+            end;
+         end loop;
+         B.Lines := new Toc.Line_Array (1 .. Natural'Max (Count, 1));
+         B.Targets := new Target_Array (1 .. Natural'Max (Count, 1));
+         B.Labels := new String (1 .. Natural'Max (Room, 1));
+         Tmp := new String (1 .. Natural'Max (Max_Label, 16));
+
+         for I in 1 .. Count loop
+            declare
+               It      : constant Toc.Item := Items (I);
+               Href    : constant String := Xml_Scan.Text (Doc, It.Href);
+               Sharp   : Natural := 0;
+               H       : Unsigned_32;
+               Chapter : Natural := 0;
+               T_Last  : Natural := 0;
+               J       : Positive;
+            begin
+               for K in Href'Range loop
+                  if Href (K) = '#' then
+                     Sharp := K;
+                     exit;
+                  end if;
+               end loop;
+               --  The file (Resolve drops the fragment), searched from the
+               --  previous entry's chapter on: entries mostly follow the
+               --  spine.
+               Path_Hash (Doc_Path, Href, H, Path_Ok);
+               if Path_Ok then
+                  for K in 0 .. B.Chapters - 1 loop
+                     J := (Next + K) mod B.Chapters + 1;
+                     if Spine (J) = H then
+                        Chapter := J;
+                        Next := J - 1;
+                        exit;
+                     end if;
+                  end loop;
+               end if;
+
+               if Chapter /= 0 then
+                  if not Xml_Scan.Is_Empty (It.Label) then
+                     Xhtml_Text.Convert
+                       (Doc (It.Label.First .. It.Label.Last),
+                        Tmp (1 .. It.Label.Last - It.Label.First + 1),
+                        T_Last);
+                     for K in 1 .. T_Last loop
+                        if Tmp (K) = Xhtml_Text.Paragraph_Break then
+                           Tmp (K) := ' ';
+                        end if;
+                     end loop;
+                  end if;
+                  if T_Last = 0 then
+                     declare
+                        Label : constant String :=
+                          "Chapter" & Positive'Image (Chapter);
+                     begin
+                        T_Last := Label'Length;
+                        Tmp (1 .. T_Last) := Label;
+                     end;
+                  end if;
+                  N := N + 1;
+                  B.Labels (Used + 1 .. Used + T_Last) := Tmp (1 .. T_Last);
+                  B.Lines (N) := (Level => It.Level, First => Used + 1,
+                                  Last => Used + T_Last);
+                  Used := Used + T_Last;
+                  B.Targets (N) :=
+                    (Chapter    => Chapter,
+                     Has_Anchor => Sharp in Href'First .. Href'Last - 1,
+                     Anchor     =>
+                       (if Sharp in Href'First .. Href'Last - 1
+                        then Xhtml_Text.Id_Hash (Href (Sharp + 1 .. Href'Last))
+                        else 0));
+                  Min_Level := Toc.Level_Type'Min (Min_Level, It.Level);
+               end if;
+            end;
+         end loop;
+
+         --  A toc nested one level deeper than it needs (an outer list
+         --  around everything) starts at level 1 all the same.
+         for I in 1 .. N loop
+            B.Lines (I).Level := B.Lines (I).Level - (Min_Level - 1);
+         end loop;
+         B.Entries := N;
+         Free (Items);
+         Free (Spine);
+         Free (Tmp);
+      end;
+      if B.Entries = 0 then
+         Free (B.Lines);
+         Free (B.Labels);
+         Free (B.Targets);
+      end if;
+   end Read_Contents;
+
+   procedure Load_Contents (V : in out FS.Volume; B : in out Book) is
+   begin
+      if B.Lines /= null then
+         return;
+      end if;
+      Read_Contents (V, B, B.Nav_Href, Is_Nav => True);
+      if B.Entries = 0 then
+         Read_Contents (V, B, B.Ncx_Href, Is_Nav => False);
+      end if;
+      if B.Entries = 0 then
+         Contents_From_Spine (B);
+      end if;
+   end Load_Contents;
 end Book_Source;

@@ -2,6 +2,7 @@
 --
 --    preview_main CARD library OUT.pgm [SELECTED [BATTERY%]]
 --    preview_main CARD.img reader OUT.pgm BOOK [CHAPTER [PAGE [SIZE [menu]]]]
+--    preview_main CARD.img contents OUT.pgm BOOK [CHAPTER [PAGE [SIZE [SELECTED]]]]
 --    preview_main CARD.img settings OUT.pgm [SIZE]
 --    preview_main CARD sleep|off OUT.pgm [TITLE]
 --
@@ -15,6 +16,8 @@
 --
 --  The reader screen opens BOOK (a file name in /Books) at CHAPTER (default:
 --  the first with text) and turns PAGE - 1 pages forward, at SIZE px.
+--  The contents screen shows BOOK's table of contents as seen from there,
+--  with entry SELECTED selected (default: the one being read).
 --
 --  CARD is a directory (CARD/Books, CARD/Fonts) or, if it ends in ".img", a
 --  FAT32 disk image read through the same Fat32/Card_Scan/Font_Loader code
@@ -40,6 +43,7 @@ with Sleep_View;
 with Mono_Frame;
 with Shelf;
 with Status_Bar;
+with Toc_View;
 with Truetype;
 with Host_Card;
 with Font_Catalog;
@@ -187,7 +191,8 @@ begin
          (if Argument_Count >= 4 then Natural'Value (Argument (4))
           else (if Books.Count > 0 then 1 else 0)),
          Batt);
-   elsif Argument (2) = "reader" and then Is_Image and then Argument_Count >= 4
+   elsif (Argument (2) = "reader" or else Argument (2) = "contents")
+     and then Is_Image and then Argument_Count >= 4
    then
       declare
          use Ada.Calendar;
@@ -213,6 +218,29 @@ begin
             exit when not Moved;
          end loop;
          T0 := Clock;
+         if Argument (2) = "contents" then
+            if not Image_Reader.Has_Contents then
+               Put_Line ("no contents");
+               Set_Exit_Status (Failure);
+               return;
+            end if;
+            Image_Reader.Load_Contents (Volume);
+            declare
+               Here : constant Natural := Image_Reader.Contents_Here;
+            begin
+               Toc_View.Draw
+                 (Screen, Font, Argument (4),
+                  Image_Reader.Contents_Labels.all,
+                  Image_Reader.Contents_Lines
+                    (1 .. Image_Reader.Contents_Count),
+                  Arg (8, Here), Here, Batt);
+               Put_Line ("contents:" & Image_Reader.Contents_Count'Image
+                         & " entries, here" & Here'Image & ", drawn in"
+                         & Duration'Image (Clock - T0) & " s");
+            end;
+            Write_PGM (Argument (3));
+            return;
+         end if;
          Image_Reader.Draw
            (Screen, Masks,
             Ada.Environment_Variables.Value ("PREVIEW_GREY", "") = "1",

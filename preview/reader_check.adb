@@ -6,7 +6,9 @@
 --  From the first page, turn forward to the end of the book and back to the
 --  start, checking that both walks visit the same number of pages, that the
 --  position only ever moves one way, and that reopening at a position lands
---  on the same page.  PREVIEW_FACE names the face (default: the
+--  on the same page.  Then go to every entry of the table of contents and
+--  check that the Reader counts the page it lands on as that entry's (or
+--  as an entry's that starts on the same page).  PREVIEW_FACE names the face (default: the
 --  catalogue's).
 with Ada.Calendar; use Ada.Calendar;
 with Ada.Command_Line; use Ada.Command_Line;
@@ -120,6 +122,35 @@ procedure Reader_Check is
                   & " page" & Image_Reader.Page'Image & ", expected"
                   & Mid_Chapter'Image & Mid_Page'Image);
          end if;
+      end if;
+
+      if Image_Reader.Has_Contents then
+         Image_Reader.Load_Contents (V);
+         for I in 1 .. Image_Reader.Contents_Count loop
+            Image_Reader.Go_To_Entry (V, I, Moved);
+            if not Moved then
+               Fail (Name, "could not go to entry" & I'Image);
+            else
+               declare
+                  Here : constant Natural := Image_Reader.Contents_Here;
+                  At_I : constant Image_Reader.Position := Image_Reader.Where;
+               begin
+                  if Here = 0 then
+                     Fail (Name, "no entry here after going to" & I'Image);
+                  elsif Here /= I then
+                     Image_Reader.Go_To_Entry (V, Here, Moved);
+                     if Image_Reader.Where /= At_I then
+                        Fail (Name, "went to entry" & I'Image
+                              & " (chapter" & At_I.Chapter'Image
+                              & " offset" & At_I.Offset'Image
+                              & "), but it counts as entry" & Here'Image);
+                     end if;
+                  end if;
+               end;
+            end if;
+         end loop;
+         Put_Line (Name & ":" & Image_Reader.Contents_Count'Image
+                   & " contents entries visited");
       end if;
 
       Image_Reader.Close;

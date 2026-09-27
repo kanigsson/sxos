@@ -119,7 +119,10 @@ fixed there, not by flashing.
 | Library | tap row | open book |
 | Reader | Right, or tap right two thirds | next page |
 | Reader | Left, or tap left third | previous page |
-| any | tap top band | overlay: Library · Settings · battery / progress |
+| Reader | tap top band | overlay: Library · Contents (EPUB) · Settings · progress |
+| Contents | Left / Right, or tap row | move selection |
+| Contents | tap selected row | go to that entry |
+| Contents | tap ◀ / ▶ / Back (footer) | previous / next page of entries; back to the page |
 | Library | tap Settings (footer) | Settings |
 | Library | tap ◀ / ▶ (footer) | previous / next page of books |
 | any | Power, or 10 min without input | sleep screen, deep sleep; Power wakes into the open book |
@@ -131,6 +134,41 @@ fixed there, not by flashing.
 Each part below was confirmed on the device, unless its heading says
 otherwise; the milestone it came from (M3–M8) is kept in the heading for
 finding it in the history.
+
+### Table of contents (after M8; not yet tried on the device)
+
+- **Where it comes from:** `Opf.Toc_Hrefs` finds the manifest's nav
+  document (`properties="nav"`) and NCX; `Toc` (SPARK) reads the links of
+  `<nav epub:type="toc">` (nested by `<ol>`; the first nav if none is
+  typed; links without href are left out) or the NCX's `<navMap>`
+  `<navPoint>`s (not its `<pageList>`: Feuchtwanger's NCX has 9 entries
+  and 372 print-page targets). The nav document is tried first, then the
+  NCX, then a "Chapter N" entry per spine item (Musil's are both empty).
+  Only EPUBs have contents: a TXT file's sections are arbitrary cuts.
+- **Resolving targets:** `Book_Source.Load_Contents` resolves each href
+  against the toc's own path and matches the file to a chapter by an
+  FNV-1a hash of the archive path (searching on from the previous entry's
+  chapter); entries whose file is not a chapter (a cover outside the
+  spine) are left out. Labels go through `Xhtml_Text.Convert` (entities,
+  inner tags) into one buffer. Levels are shifted so the top one is 1.
+  Read on the first Contents, freed with the book.
+- **Anchors:** `Xhtml_Text.Convert` also records each element's `id` (and
+  an `<a>`'s `name`) with the offset of the text that follows, as a hash,
+  up to `Book_Source.Max_Anchors` (4096) per chapter. A fragment
+  `#id` is looked up among the loaded chapter's anchors; one that is not
+  found means the chapter's start.
+- **Where you are:** `Reader.Contents_Here` is the last entry (by chapter,
+  then offset) that starts before the next page; an anchor in another
+  chapter counts as that chapter's start. So the entry just gone to is
+  the one marked, unless another starts on the same page.
+- **Going there:** `Reader.Go_To_Entry` loads the chapter (or the next one
+  with text) and shows the page holding the anchor, with a clean refresh.
+  Selecting takes two taps, as opening a book does: a jump loses the
+  place, and there is no way back to it.
+- Host checks: `book_check IMAGE --toc [NAME]` prints each entry's chapter
+  and the text at its anchor; `reader_check` goes to every entry and checks
+  that the Reader marks it (or one starting on the same page) as current.
+  On the test card every anchor is found.
 
 ### Grey text (after M8)
 
@@ -382,6 +420,7 @@ The rules below apply to any EPUB, not only the test books:
   Latin-1 and common typographic entities and numeric references are
   decoded, soft hyphens are dropped, and `head`/`script`/`style`/`svg` are
   skipped. Headings come out as plain paragraphs (no emphasis yet).
+  Element ids are kept as anchors for the table of contents.
 - **TXT** (`Plain_Text`): UTF-8, or Windows-1252 when not valid UTF-8; a BOM
   is dropped. Hard-wrapped text (blank lines, and short lines) has single
   line breaks joined; otherwise every line is a paragraph. A single-spaced
