@@ -281,6 +281,13 @@ package body Reader is
       T   : constant Books.Target := Books.Contents_Target (Book, I);
       Was : constant Position := Where;
    begin
+      --  In the chapter on the screen: its pages are laid out already
+      --  (setting a large chapter again takes seconds on the device).
+      if T.Chapter = Current and then Pages > 0 then
+         Shown := Page_Layout.Page_Of (Starts.all, Pages, Entry_Offset (T));
+         Moved := True;
+         return;
+      end if;
       Seek (V, T.Chapter, 1, Moved);
       if Moved then
          if Current = T.Chapter and then Pages > 0 then

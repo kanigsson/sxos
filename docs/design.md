@@ -135,7 +135,7 @@ Each part below was confirmed on the device, unless its heading says
 otherwise; the milestone it came from (M3–M8) is kept in the heading for
 finding it in the history.
 
-### Table of contents (after M8; not yet tried on the device)
+### Table of contents (after M8)
 
 - **Where it comes from:** `Opf.Toc_Hrefs` finds the manifest's nav
   document (`properties="nav"`) and NCX; `Toc` (SPARK) reads the links of
@@ -162,13 +162,19 @@ finding it in the history.
   chapter counts as that chapter's start. So the entry just gone to is
   the one marked, unless another starts on the same page.
 - **Going there:** `Reader.Go_To_Entry` loads the chapter (or the next one
-  with text) and shows the page holding the anchor, with a clean refresh.
+  with text) and shows the page holding the anchor, with a clean refresh;
+  an entry in the chapter on the screen only changes the page (setting
+  Baskerville's 200 KB chapter again took 3.3 s).
   Selecting takes two taps, as opening a book does: a jump loses the
   place, and there is no way back to it.
 - Host checks: `book_check IMAGE --toc [NAME]` prints each entry's chapter
   and the text at its anchor; `reader_check` goes to every entry and checks
   that the Reader marks it (or one starting on the same page) as current.
   On the test card every anchor is found.
+- Measured on the device (2026-09-27; TXT books not tried): reading the
+  contents takes 9–14 ms for small books and 182 ms for Musil's 1663
+  fallback entries (65 KB of heap); a list page draws in 7–90 ms; going
+  to another chapter took 94–201 ms.
 
 ### Grey text (after M8)
 

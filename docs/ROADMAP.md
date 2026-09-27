@@ -10,8 +10,7 @@ is in [`design.md`](design.md).
   Take `dc:title` (and `dc:creator`) from the OPF for EPUBs, and keep the
   file name for TXT. `Opf` already parses the package document.
 - **Table of contents, next steps** (`design.md`, "Table of contents";
-  not tried on the device yet): measure loading Musil's 1663 fallback
-  entries and a jump; prove `Toc`, `Toc_View` and the changed `Opf` and
+  works on the device, TXT books untried there): prove `Toc`, `Toc_View` and the changed `Opf` and
   `Xhtml_Text`, then put them back on the `-gnatp` list. Then perhaps: a
   way back to the page before a jump; better fallback labels than
   "Chapter N" (the chapter's first line, which needs every chapter
