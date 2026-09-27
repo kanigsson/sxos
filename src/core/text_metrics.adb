@@ -14,6 +14,12 @@ is
       then Greek_Base + Integer (C - Greek_First)
       elsif C in Punct_First .. Punct_Last
       then Punct_Base + Integer (C - Punct_First)
+      elsif C in CJK_First .. CJK_Last
+      then CJK_Base + Integer (C - CJK_First)
+      elsif C in Hangul_First .. Hangul_Last
+      then Hangul_Base + Integer (C - Hangul_First)
+      elsif C in Wide_First .. Wide_Last
+      then Wide_Base + Integer (C - Wide_First)
       else -1);
 
    Soft_Hyphen : constant UTF8.Code_Point := 16#AD#;
@@ -25,7 +31,13 @@ is
      (if S <= Latin_Last then UTF8.Code_Point (S)
       elsif S < Punct_Base
       then UTF8.Code_Point (S - Greek_Base) + Greek_First
-      else UTF8.Code_Point (S - Punct_Base) + Punct_First);
+      elsif S < CJK_Base
+      then UTF8.Code_Point (S - Punct_Base) + Punct_First
+      elsif S < Hangul_Base
+      then UTF8.Code_Point (S - CJK_Base) + CJK_First
+      elsif S < Wide_Base
+      then UTF8.Code_Point (S - Hangul_Base) + Hangul_First
+      else UTF8.Code_Point (S - Wide_Base) + Wide_First);
 
    --  The kern slot of C, or -1 when C is not kerned.
    function Kern_Slot_Of (C : UTF8.Code_Point) return Integer is

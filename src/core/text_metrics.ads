@@ -5,8 +5,10 @@ with UTF8;
 --  Glyph ids and pen advances of one face at one pixel size, looked up once
 --  and kept in a table, so laying out a chapter costs one array access per
 --  character instead of a cmap search.  The table covers the scripts the
---  reader targets (Latin, Greek, Cyrillic and general punctuation); other
---  code points fall back to the font.
+--  reader targets (Latin, Greek, Cyrillic, general punctuation, and for
+--  Korean: CJK symbols and punctuation through the Hangul compatibility
+--  jamo, the Hangul syllables and the halfwidth and fullwidth forms); other
+--  code points, Hanja among them, fall back to the font.
 --
 --  A space-like code point the face lacks (no-break space, thin space, ...)
 --  is given the space's glyph, so it keeps its width instead of vanishing.
@@ -16,7 +18,7 @@ with UTF8;
 --  Basic Latin, Latin-1, Latin Extended-A and General Punctuation (U+2010
 --  .. U+2027) characters; other pairs are not kerned.  The table in font
 --  units is kept while the face stays the same, so a size change only
---  rescales it.  A Table is large (some 600 KB): allocate it on the heap.
+--  rescales it.  A Table is large (some 700 KB): allocate it on the heap.
 package Text_Metrics
   with SPARK_Mode => On
 is
@@ -48,10 +50,19 @@ private
    Greek_Last  : constant := 16#052F#;
    Punct_First : constant := 16#2000#;                  --  General Punctuation
    Punct_Last  : constant := 16#206F#;
+   CJK_First   : constant := 16#3000#;       --  CJK Symbols and Punctuation
+   CJK_Last    : constant := 16#318F#;       --  .. Hangul Compatibility Jamo
+   Hangul_First : constant := 16#AC00#;      --  Hangul Syllables
+   Hangul_Last  : constant := 16#D7A3#;
+   Wide_First  : constant := 16#FF00#;       --  Halfwidth and Fullwidth Forms
+   Wide_Last   : constant := 16#FFEF#;
 
-   Greek_Base : constant := Latin_Last + 1;
-   Punct_Base : constant := Greek_Base + Greek_Last - Greek_First + 1;
-   Slots      : constant := Punct_Base + Punct_Last - Punct_First + 1;
+   Greek_Base  : constant := Latin_Last + 1;
+   Punct_Base  : constant := Greek_Base + Greek_Last - Greek_First + 1;
+   CJK_Base    : constant := Punct_Base + Punct_Last - Punct_First + 1;
+   Hangul_Base : constant := CJK_Base + CJK_Last - CJK_First + 1;
+   Wide_Base   : constant := Hangul_Base + Hangul_Last - Hangul_First + 1;
+   Slots       : constant := Wide_Base + Wide_Last - Wide_First + 1;
 
    subtype Slot is Natural range 0 .. Slots - 1;
 
