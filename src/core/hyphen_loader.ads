@@ -25,4 +25,8 @@ package Hyphen_Loader is
       Tag      : String;
       Patterns : out Hyphenation.Trie_Ref);
 
+   --  Free the loaded patterns (no trie from Select_Language may be used
+   --  again); the next Select_Language reads the card afresh.
+   procedure Release;
+
 end Hyphen_Loader;

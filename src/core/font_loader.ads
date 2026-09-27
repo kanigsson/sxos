@@ -15,6 +15,8 @@ generic
 package Font_Loader is
 
    --  Data is the font's buffer (null when Ok is False: nothing is kept).
+   --  A face with no free block of the heap large enough is not loaded
+   --  (Ok is False), as a file that does not read.
    procedure Load
      (V     : in out FS.Volume;
       Faces : Font_Catalog.List;

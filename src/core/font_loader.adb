@@ -28,7 +28,14 @@ package body Font_Loader is
          Ok := False;
          return;
       end if;
-      Data := new Bytes.Byte_Array (0 .. Natural (FS.Size (F)) - 1);
+      begin
+         Data := new Bytes.Byte_Array (0 .. Natural (FS.Size (F)) - 1);
+      exception
+         when Storage_Error =>
+            --  No free block that large (the heap may be fragmented).
+            Ok := False;
+            return;
+      end;
       FS.Read (V, F, 0, Data.all, Count, Ok);
       if Ok and then Count = Data'Length then
          Truetype.Open (Truetype.Data_Ref (Data), Font, Ok);
@@ -88,7 +95,12 @@ package body Font_Loader is
       then
          return;
       end if;
-      Cmap := new Bytes.Byte_Array (0 .. Len - 1);
+      begin
+         Cmap := new Bytes.Byte_Array (0 .. Len - 1);
+      exception
+         when Storage_Error =>
+            return;
+      end;
       FS.Read (V, F, Interfaces.Unsigned_32 (Off), Cmap.all, Count, Ok);
       if Ok and then Count = Len then
          Truetype.Open_Cmap (Truetype.Data_Ref (Cmap), Probe, Ok);

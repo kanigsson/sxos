@@ -93,6 +93,27 @@ In order:
   until spark-world states its proof status (`inflate-notes.md` §7); then
   it can join the `-gnatp` list in `sxos.gpr`.
 
+- **Heap exhaustion as a proof obligation.** GNATprove assumes every
+  allocator succeeds (no `Storage_Error` checks, no heap model), so proof
+  did not see the crash of switching from NanumMyeongjo to Noto Sans KR
+  with a book open (fragmented heap; `design.md`, "Fallback faces").
+  Route large buffers (fonts, chapters, patterns) through a SPARK
+  `Try_Allocate` whose result may be null (a `malloc` that returns null
+  rather than raising): every dereference is then a proof obligation, so
+  a path that does not handle "does not fit" fails proof. Covers graceful
+  failure, not the capacity planning (`Make_Room`).
+- **Replay the heap on the host.** `ada_esp32s3`'s TLSF allocator is plain
+  Ada: an `alloc_check` beside `book_check` could run it over an 8 MB
+  arena and replay the device's allocation sequence (elaboration, faces,
+  book, face changes), catching fragmentation failures before flashing.
+- **The controller in SPARK.** `main.adb`'s mode logic (Library, Reader,
+  menu, Settings, saving) calls contracts it cannot check: the target
+  builds without `-gnata`, and `main` is not SPARK. Making the state
+  machine SPARK, with the hardware behind wrappers as `Reader` and
+  `Font_Loader` are, would prove e.g. `Card_Reader.Where`'s
+  `Pre => Is_Open` (a periodic save after `Make_Room` closed the book was
+  one such near miss).
+
 ## Open questions
 
 - Is 10 fast updates between clean refreshes right for page turns of

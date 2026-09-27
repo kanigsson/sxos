@@ -123,4 +123,10 @@ package body Hyphen_Loader is
       Patterns := Hyphenation.Trie_Ref (Current);
    end Select_Language;
 
+   procedure Release is
+   begin
+      Free (Current);
+      Asked := False;
+   end Release;
+
 end Hyphen_Loader;

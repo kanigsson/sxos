@@ -32,6 +32,7 @@ with Bitmap_Text;
 with Bytes;
 with Card;
 with Card_Books;
+with Card_Hyphens;
 with Card_Library;
 with Card_Reader;
 with Device_Store;
@@ -101,6 +102,9 @@ procedure Main is
    Back_To     : Mode := Library;
    Before      : Reading_Settings.Values;
    Face_Loaded : Boolean := False;
+   --  With Back_To = Reading: where the book was.  A face change closes
+   --  the book (Make_Room); Close_Settings opens it again there.
+   Reading_Pos : Card_Reader.Position;
 
    --  The open book, and whether its position has changed since it was
    --  last saved (then Turned is the time of the last page turn).
@@ -391,6 +395,9 @@ procedure Main is
 
    procedure Open_Settings (From : Mode) is
    begin
+      if From = Reading then
+         Reading_Pos := Card_Reader.Where;
+      end if;
       Back_To := From;
       Before := Prefs;
       Face_Loaded := False;
@@ -398,11 +405,28 @@ procedure Main is
       Render_Settings;
    end Open_Settings;
 
+   --  Before a face change under Settings: close the open book (its
+   --  position saved) and drop its hyphenation patterns.  They sit on the
+   --  heap after the reading face, so freeing the face alone leaves two
+   --  holes, neither large enough for a big face (NanumMyeongjo, 3 MB,
+   --  then Noto Sans KR, 4.3 MB, with 6 MB free: the load failed).
+   procedure Make_Room is
+   begin
+      if Card_Reader.Is_Open then
+         if Unsaved then
+            Save_Position;
+         end if;
+         Card_Reader.Close;
+         Card_Hyphens.Release;
+      end if;
+   end Make_Room;
+
    --  The next face in direction Step that loads.
    procedure Step_Face (Step : Integer) is
       I  : Font_Catalog.Index := Read_Face;
       Ok : Boolean;
    begin
+      Make_Room;
       for K in 1 .. Faces.Count - 1 loop
          if Step > 0 then
             I := (if I >= Faces.Count then 1 else I + 1);
@@ -441,12 +465,14 @@ procedure Main is
          Render_Library;
          return;
       end if;
-      if not Face_Loaded and then Prefs.Size = Before.Size then
+      if not Face_Loaded and then Prefs.Size = Before.Size
+        and then Card_Reader.Is_Open
+      then
          Current := Reading;
          Render_Reader;
          return;
       end if;
-      Pos := Card_Reader.Where;
+      Pos := Reading_Pos;
       Card_Reader.Open
         (Volume, Shelf.Name (Books, Open_Index), Read_Font, Prefs.Size, Pos,
          Result);

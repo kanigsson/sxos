@@ -95,7 +95,13 @@ fixed there, not by flashing.
   consults it per character, `Text_Metrics` copies it when prepared.
   Changing the reading face frees the old one before loading the new
   (two 2–4 MB Korean faces need not fit side by side), and picks up the
-  fallback face's buffer when that face becomes the reading face.
+  fallback face's buffer when that face becomes the reading face. Under
+  Settings from the Reader it first closes the book and drops its
+  hyphenation patterns (`Make_Room`; the book is reopened on leaving):
+  they were allocated after the reading face, and with them in place the
+  freed face leaves a hole apart from the free tail, neither large enough
+  for Noto Sans KR. A face that finds no free block large enough is not
+  loaded (`Storage_Error` is caught in `Font_Loader`).
 - **1 bpp rendering:** anti-aliased coverage is thresholded to black/white,
   with size-derived stem darkening.
 - **Persistence:** a log-structured store in internal NOR flash, written via
